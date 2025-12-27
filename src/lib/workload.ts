@@ -1,29 +1,46 @@
 import type { Project, TeamMember } from './api';
 
-// Helper types
+/**
+ * Workload-related helper types and utilities.
+ * These functions are intentionally lightweight and optimized for clarity.
+ * They are intended for UI-level summaries and suggestions rather than
+ * serving as a full scheduling engine.
+ */
+
+// A concise representation of an individual's current load.
 export interface WorkloadData {
   memberId: number;
   name: string;
+  // Simple numeric score derived from project priorities assigned to this member.
   workload: number;
+  // Number of projects currently assigned to the member.
   projectCount: number;
+  // Categorized status to drive UI badges and simple heuristics.
   status: 'balanced' | 'busy' | 'overloaded';
 }
 
+// A small suggestion object describing a potential transfer to reduce overload.
 export interface ReassignmentSuggestion {
   fromMember: string;
   toMember: string;
   projectName: string;
+  // Human-friendly reason for the suggestion.
   reason: string;
+  // Estimated workload impact (in the same units used by `workload`).
   workloadImpact: number;
 }
 
+// Summary of projects clustered by calendar week, used to highlight deadline hotspots.
 export interface DeadlineCluster {
   weekStart: Date;
   weekEnd: Date;
   projects: Project[];
   projectCount: number;
+  // Rough estimate of how many team members would be required that week.
   totalMembersNeeded: number;
+  // Numeric risk score built from simple heuristics (higher = more risk).
   riskScore: number;
+  // Bucketed risk level for display.
   riskLevel: 'low' | 'medium' | 'high';
 }
 
@@ -54,6 +71,10 @@ export const calculateWorkloadDistribution = (teamMembers: TeamMember[], project
     const member = teamMembers.find(m => m.id === memberId);
     if (member) {
       let status: WorkloadData['status'] = 'balanced';
+      // Thresholds here are heuristic and chosen for UI clarity.
+      // - workload > 8 : overloaded
+      // - 6..8        : busy
+      // - <=5         : balanced
       if (value.workload > 8) status = 'overloaded';
       else if (value.workload > 5) status = 'busy';
 
@@ -79,6 +100,16 @@ export const calculateStandardDeviation = (workloads: number[]): number => {
 };
 
 // Complexity: O(n^2 * m) - evaluates simple reassignment suggestions
+/**
+ * Generate a short list of lightweight reassignment suggestions.
+ * This function looks for overloaded members and attempts to find a
+ * candidate project that could be moved to a balanced member.
+ *
+ * Notes:
+ * - This is conservative: it returns at most a few suggestions and
+ *   does not modify input state. Consider it as guidance for a human
+ *   manager rather than an automated reassigner.
+ */
 export const generateReassignmentSuggestions = (
   workloads: WorkloadData[],
   projects: Project[],
@@ -93,6 +124,7 @@ export const generateReassignmentSuggestions = (
     balanced.forEach(balMember => {
       const candidateProject = memberProjects.find(project => project.team !== balMember.memberId);
       if (candidateProject) {
+        // Workload impact uses the same priority weighting as distribution.
         const priorityWeight: Record<string, number> = { 'High': 3, 'Medium': 2, 'Low': 1 };
         const weight = priorityWeight[candidateProject.priority] || 1;
         suggestions.push({
@@ -140,6 +172,8 @@ export const clusterProjectsByWeek = (projects: Project[]): DeadlineCluster[] =>
     if (riskScore > 10) riskLevel = 'high';
     else if (riskScore > 5) riskLevel = 'medium';
 
+    // Build cluster summary. Risk score is intentionally simple and
+    // intended for highlighting weeks that need attention in the UI.
     clusters.push({ weekStart, weekEnd, projects: weekProjects, projectCount, totalMembersNeeded, riskScore, riskLevel });
   });
 
@@ -158,5 +192,6 @@ export const getWeekStart = (date: Date): Date => {
 
 // Format date for display
 export const formatDate = (date: Date): string => {
+  // Short, human-friendly format for the UI (e.g. "Dec 28")
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };

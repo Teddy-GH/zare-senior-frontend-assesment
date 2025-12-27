@@ -1,5 +1,9 @@
 import type { TeamMember, TeamFilters } from './api';
 
+/**
+ * Summarized team statistics used by the Team page.
+ * - `avgProjects` is a simple arithmetic mean (totalProjects / members).
+ */
 export interface TeamStats {
   active: number;
   inactive: number;
@@ -8,6 +12,12 @@ export interface TeamStats {
   avgProjects: number;
 }
 
+/**
+ * Compute small, display-oriented statistics about the team.
+ *
+ * This is intentionally simple — it helps the UI show counts and an
+ * average. All fields are deterministic and safe to call with `undefined`.
+ */
 export const calculateTeamStats = (teamMembers?: TeamMember[]): TeamStats => {
   if (!teamMembers || teamMembers.length === 0) {
     return { active: 0, inactive: 0, totalProjects: 0, uniqueRoles: 0, avgProjects: 0 };
@@ -22,6 +32,15 @@ export const calculateTeamStats = (teamMembers?: TeamMember[]): TeamStats => {
   return { active, inactive, totalProjects, uniqueRoles, avgProjects };
 };
 
+/**
+ * Apply simple in-memory filters to mock team data. This mirrors the
+ * server-side filtering used in the real API so the dev-mode mock behaves
+ * consistently with production.
+ *
+ * Supported filters:
+ * - `search`: case-insensitive substring match against `name`, `role`, or `email`.
+ * - `status`: either `Active` or `Inactive` to narrow results.
+ */
 export const filterMockTeamData = (data: TeamMember[], filters?: TeamFilters): TeamMember[] => {
   if (!filters) return data;
   let filtered = [...data];
@@ -42,6 +61,18 @@ export const filterMockTeamData = (data: TeamMember[], filters?: TeamFilters): T
   return filtered;
 };
 
+/**
+ * Build a compact list of tokens useful for autocomplete.
+ *
+ * For each team member we include:
+ * - full lowercase `name`
+ * - `role`
+ * - the portion of the email before `@`
+ * - individual name parts (first/last)
+ *
+ * Returning a `Set`-backed array deduplicates tokens and keeps suggestions
+ * reasonably focused.
+ */
 export const generateTeamAutocompleteItems = (teamMembers?: TeamMember[]): string[] => {
   if (!teamMembers) return [];
   const items = new Set<string>();

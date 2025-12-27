@@ -1,5 +1,10 @@
 import type { Project } from './api';
 
+/**
+ * Lightweight representation of a project used by dependency UI and helpers.
+ * - `dependencies` holds an array of project ids that must complete first.
+ * - `estimatedDays` is the heuristic duration in calendar days (not work-days).
+ */
 export interface DependencyProject {
   id: number;
   name: string;
@@ -8,7 +13,13 @@ export interface DependencyProject {
 }
 
 /**
- * Estimate project days based on priority and progress
+ * Estimate project days based on priority and current progress.
+ *
+ * Rules / assumptions:
+ * - Estimates are heuristic and intended for rough planning only.
+ * - Values are returned in calendar days.
+ * - Higher priority shortens the baseline but also caps extremes.
+ * - Progress reduces remaining days proportionally (simple linear model).
  */
 export const estimateProjectDays = (project: Project): number => {
   let estimatedDays = 14;
@@ -34,7 +45,14 @@ export const estimateProjectDays = (project: Project): number => {
 };
 
 /**
- * Convert API projects into dependency graph format and persist/load dependencies from localStorage
+ * Convert API `Project` objects into the simpler `DependencyProject` format
+ * used by the UI dependency graph. This function also attempts to read
+ * user-edited dependency lists from `localStorage` under the key
+ * `project-deps-<id>` so that manual adjustments survive reloads.
+ *
+ * Important notes:
+ * - `localStorage` access is wrapped with a typeof check so the code
+ *   is safe to import in non-browser test environments.
  */
 export const convertToDependencyFormat = (projects: Project[]): DependencyProject[] => {
   return projects.map((project) => {
@@ -52,11 +70,18 @@ export const convertToDependencyFormat = (projects: Project[]): DependencyProjec
   });
 };
 
+/**
+ * Safe lookup helper: returns the estimated days for a project in the
+ * dependency array or a sensible default if not found.
+ */
 export const getProjectEstimatedDays = (dependencyProjects: DependencyProject[], projectId: number): number => {
   const p = dependencyProjects.find((d) => d.id === projectId);
   return p?.estimatedDays || 14;
 };
 
+/**
+ * Return how many dependencies a given project has (0 when unknown).
+ */
 export const getProjectDependencyCount = (dependencyProjects: DependencyProject[], projectId: number): number => {
   const p = dependencyProjects.find((d) => d.id === projectId);
   return p?.dependencies.length || 0;
