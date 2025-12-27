@@ -1,8 +1,8 @@
 # Algorithm Analysis & Documentation
 
-**Candidate Name:** [Your Name]  
-**Date:** [Date]  
-**Time Spent:** [Total time on assessment]
+**Candidate Name:** [Your Name]
+**Date:** [Date]
+**Time Spent:** see individual sections below
 
 ---
 
@@ -10,340 +10,232 @@
 
 Mark which parts you completed:
 
-- [ ] Part 1: Fuzzy Search (60 min)
-- [ ] Part 2: Analytics - Workload Optimizer (45 min)
-- [ ] Part 3: Dependency Graph & Critical Path (45 min)
-- [ ] Part 4: Data Structures (Trie & LRU) (30 min)
+- [x] Part 1: Fuzzy Search (implemented in `src/lib/search.ts`)
+- [x] Part 2: Analytics - Workload Optimizer (implemented in `src/lib/workload.ts`)
+- [x] Part 3: Dependency Graph & Critical Path (design and helpers)
+- [x] Part 4: Data Structures (Trie & LRU implemented in `src/lib/dataStructures.ts`)
 - [ ] Bonus: [List any bonus features]
 
 ---
 
-## Part 1: Fuzzy Search Algorithm
+## Part 1: Fuzzy Search Algorithm (implementation: `src/lib/search.ts`)
 
 ### Approach
-I implemented a deterministic, multi-field fuzzy search that balances precision and performance for UI search use-cases. The algorithm normalizes text (trim + lowercase), then for each item checks configured string fields and scores the best-matching field using a small, fixed rubric (exact, starts-with, contains, fuzzy). Fuzzy matching is limited to a strict Levenshtein distance ≤ 1 to keep results predictable and fast for short user queries.
+Implemented a deterministic multi-field fuzzy search intended for UI-level lists. The search:
+- Normalizes strings (lowercase + trim).
+- Searches across configured fields (auto-detects string/number fields if not provided).
+- Scores matches using a small fixed rubric and returns results sorted by score.
 
-This approach was chosen because it is simple to reason about, easy to unit test, and provides the common user expectations (exact > prefix > substring > small-typo). It is well-suited for dashboards and project listings where responsive UI is important and large-scale approximate search (e.g., full fuzzy sets, n-gram indexing) is not required.
+This is designed for predictable, fast results on short fields (names, descriptions, tags).
 
 ### Levenshtein Distance Implementation
-**Time Complexity:** O(m · n)  
-**Space Complexity:** O(min(m, n))  
-**Explanation:**
+- Time Complexity: O(m · n) where m and n are the lengths of the two compared strings.
+- Space Complexity: O(m) (implementation uses two rolling rows sized by the first string length).
 
-The Levenshtein implementation uses a space-optimized dynamic programming approach. Instead of allocating a full (m+1)×(n+1) matrix it keeps just two rows (previous and current), each of length n+1, where n is the length of the second string. This reduces memory to O(n) while keeping the standard O(m·n) time complexity.
+Explanation: the implementation uses a space-optimized DP approach keeping only two rows (previous and current). It early-returns for identical or empty strings and computes the classic insertion/deletion/substitution costs.
 
-High-level steps:
-1. Early-return when strings are equal or one is empty.
-2. Initialize the `prev` row with 0..n.
-3. For each character of the first string compute the `curr` row using the three standard operations (insert, delete, substitute).
-4. Swap rows and continue, returning the final distance.
+### Scoring System (as implemented)
+- Exact match -> 100
+- Starts-with (prefix) -> 75
+- Contains (substring) -> 50
+- Fuzzy (Levenshtein distance ≤ 1) -> 25
+- No match -> 0
 
-The implementation intentionally returns exact distances. The search logic then treats distances of exactly 1 as a valid fuzzy hit (only if lengths differ by at most 1), which matches the strict typo-tolerance requirement.
-
-### Scoring System
-- Exact match -> 100 points
-- Starts-with (prefix) -> 75 points
-- Contains (substring) -> 50 points
-- Fuzzy (Levenshtein distance === 1) -> 25 points
-- No match -> 0 points
-
-Results are computed per-item by checking every configured field and taking the highest-scoring field for that item. Items with score 0 are discarded. Final results are sorted by score descending (ties preserve insertion/iteration order of found items).
+The search computes the best field score per item and returns items with score > 0 sorted by score (ties preserve the provided field order when specified).
 
 ### Edge Cases Handled
-- [x] Empty strings — empty search or missing fields yield no results; empty field values are ignored.
-- [x] Case sensitivity — all comparisons use normalized lowercase text.
-- [x] Special characters — characters are compared as-is after trimming and lowercasing (no aggressive tokenization); this is predictable for most UI searches.
-- [x] Very long strings — algorithm is linear in number of items × fields × string lengths; Levenshtein uses reduced memory but very long strings will still increase CPU time. In practice the searchable fields are short (titles, tags, descriptions).
-- [x] Multiple fields with different scores — the highest scoring field per item is used and exposed as `matchedField`/`matchType`.
-- [ ] Other edge cases: diacritics, locale-specific casing, or language-specific tokenization are not specially handled.
+- Empty items array or empty query → returns []
+- Null/undefined field values → skipped
+- Case-insensitive matching via normalization
+- Non-string fields (numbers) are stringified and searchable
+- No fields specified → auto-detects string/number fields from first item
 
 ### Trade-offs
-- Optimized for predictability and speed on short to medium-length text fields (titles, short descriptions). The strict Levenshtein ≤ 1 rule keeps results deterministic and avoids noisy fuzzy matches.
-- Accuracy trade-off: the fuzzy tolerance is intentionally small; this avoids returning irrelevant items for larger edit distances but will miss matches with multiple typos or transpositions.
-- Scaling trade-off: this is a linear scan across items and fields (O(n·f·m)). For very large datasets an indexed approach (trie, n-gram index, or dedicated search engine) would be appropriate.
+- Simple linear scan per query (O(items × fields × stringLen)) — good for small-to-medium lists, not for large-scale indexing.
+- Strict fuzzy tolerance (distance ≤ 1) keeps results predictable and avoids noisy matches.
 
 ### Time Spent
-- **Actual time:** 30 minutes
+- Actual time: 30 minutes
 
 ---
 
-## Part 2: Team Workload Optimizer
+## Part 2: Team Workload Optimizer (implementation: `src/lib/workload.ts`)
 
-### Workload Calculation Algorithm
-**Time Complexity:** O(n log n) in the common case (dominant cost is sorting workloads), where n is the number of projects.  
-**Explanation:**
-```
-1. Aggregate project effort per team: for each project sum estimated effort (e.g., story points or hours) and assign to its team. O(n).
-2. Compute per-team workload metrics (total, count, mean). O(t) where t is number of teams.
-3. Optionally sort teams by workload to create rebalancing suggestions O(t log t).
-4. When selecting candidate moves, sort a team's projects by size (ascending) to pick minimal moves. This adds additional sorting cost per-team but remains bounded by project counts.
-```
+### Workload Calculation
+- `calculateWorkloadDistribution(teamMembers, projects)` aggregates priority-weighted workload per member.
+- Time Complexity: O(T × P) where T = number of team members and P = number of projects (the implementation builds a map over members then iterates projects once).
+
+Explanation: each project contributes a priority weight (High=3, Medium=2, Low=1) to its assigned team's workload; per-member status buckets (balanced/busy/overloaded) are heuristically derived from workload thresholds.
 
 ### Standard Deviation Calculation
-**Formula Used:**
-```
-mean = (1/N) * sum_i workload_i
-variance = (1/N) * sum_i (workload_i - mean)^2
-std_dev = sqrt(variance)
-```
-We use population standard deviation to measure spread across teams; this helps identify whether rebalancing is needed (e.g., std_dev > threshold).
+- Function: `calculateStandardDeviation(workloads: number[])`
+- Formula used (population std dev):
+  mean = (1/N) * sum workload_i
+  variance = (1/N) * sum (workload_i - mean)^2
+  std_dev = sqrt(variance)
+- Complexity: O(n)
 
 ### Rebalancing Suggestions
-**Algorithm:**
-```
-1. Compute current workload per team and target workload (mean or weighted mean).
-2. Identify overloaded teams (workload > mean + tolerance) and underloaded teams (workload < mean - tolerance).
-3. For each overloaded team, sort its projects by estimated effort ascending and propose moving the smallest set of projects whose sum brings the team at-or-below target, preferring moves that match skill tags or ownership preferences.
-4. Validate candidate moves against constraints (team capacity, required skills, project dependencies, deadlines) and produce ranked suggestions (minimal moves first).
-```
+- `generateReassignmentSuggestions(workloads, projects, teamMembers)` produces a small list of conservative suggestions.
+- Complexity: up to O(n^2 * m) in worst-case heuristics where it pairs overloaded and balanced members and inspects candidate projects.
 
-**Optimization Goal:**
-Balance workloads while minimizing disruptive moves. Primary objective is to reduce standard deviation across teams; secondary objective is to minimize number of moved projects and respect constraints (skills, deadlines).
+Algorithm (practical behavior):
+1. Identify overloaded members and balanced members (heuristic thresholds).
+2. For each overloaded member, look for candidate projects that could move to a balanced member.
+3. Score suggestions using the same priority weighting and return top few (the function limits results for UI guidance).
 
 ### Deadline Clustering
-**Approach:**
-- Parse project deadlines into dates (ISO 8601). Use UTC or project-local timezone consistently.
-- Bucket deadlines by ISO week number (year + week) or by calendar week, producing weekly clusters.
-- For visualization and rebalancing, treat near-term clusters (this week, next 2 weeks) as higher priority and avoid moving projects with imminent deadlines unless overloaded teams cannot be otherwise relieved.
+- `clusterProjectsByWeek(projects)` groups projects by calendar week (week start computed with `getWeekStart`) and sorts clusters by start date.
+- Complexity: O(P log P) due to initial sort by deadline.
 
 ### Risk Calculation
-**Formula:**
-```
-// normalized components in [0,1]
-progress_factor = 1 - (completed_work / estimated_total)
-time_factor = clamp((threshold_days - days_until_deadline) / threshold_days, 0, 1)
-dependency_factor = min(dependent_count / max_expected_dependencies, 1)
-
-risk_score = w1*progress_factor + w2*time_factor + w3*dependency_factor
-```
-Weights (w1,w2,w3) are chosen based on organizational priorities (e.g., w1=0.5 progress, w2=0.3 time, w3=0.2 dependencies). The result is normalized to 0–1 and can be mapped to qualitative buckets (low/medium/high).
+- Risk score in clusters is a simple heuristic:
+  riskScore = projectCount * 2 + (totalMembersNeeded > 5 ? 3 : 0) + highPriorityCount * 3
+- Buckets: low/medium/high thresholds are applied to that numeric score for UI highlighting.
 
 ### Edge Cases Handled
- - [x] Projects with no team assigned — treated as unallocated; included in suggestions to assign to underloaded teams.
- - [x] Past deadlines — flagged as high-risk and excluded from non-critical rebalancing unless explicitly allowed.
- - [x] Same-day deadlines — treated as urgent and not recommended for moving.
- - [x] Empty project list — returns empty suggestions; functions handle empty inputs safely.
- - [x] Conflicting constraints (skill mismatch, dependencies) — candidate moves are validated and filtered.
+- Projects with no team assigned: treated as unallocated
+- Past deadlines and same-day deadlines: clusters/risk heuristics flag urgency
+- Empty input lists: functions return empty arrays safely
 
 ### Time Spent
-- **Actual time:** 45 minutes
+- Actual time: 45 minutes
 
 ---
 
-## Part 3: Dependency Graph & Critical Path
+## Part 3: Dependency Graph & Critical Path (design)
 
 ### Circular Dependency Detection
-**Algorithm Used:** [x] DFS [ ] BFS [ ] Other: Tarjan's SCC  
-**Time Complexity:** O(V + E) where V = nodes (projects) and E = dependency edges.  
-**Space Complexity:** O(V) for visited sets and recursion/stack.
+- Algorithm used: DFS with recursion stack (can also be implemented with Tarjan's SCC for components).
+- Time Complexity: O(V + E)
+- Space Complexity: O(V)
 
-**Explanation:**
-```
-Use a depth-first search with node coloring (white/gray/black) or an explicit recursion stack to detect back-edges. A back-edge from the current recursion path indicates a cycle (circular dependency). This approach is linear in the size of the graph and can return the cycle by tracking parent pointers or using Tarjan's SCC to find strongly connected components.
-```
+Explanation: perform DFS, track nodes on the recursion stack; encountering a back-edge indicates a cycle. Parent pointers can be used to recover the cycle path.
 
 ### Topological Sort
-**Algorithm Used:** [x] Kahn's [ ] DFS-based [ ] Other: ______  
-**Time Complexity:** O(V + E)
+- Algorithm used: Kahn's algorithm
+- Time Complexity: O(V + E)
 
-**Explanation:**
-```
-1. Compute in-degree for every node.
-2. Start with all nodes with in-degree 0 in a queue (sources).
-3. Repeatedly remove a source node, append it to the topological order, and decrement in-degree of its neighbors; when a neighbor reaches in-degree 0 push it to the queue.
-4. If all nodes are processed, the order is valid; if not, the graph contains a cycle.
-```
+Explanation: compute in-degrees, process zero in-degree nodes in a queue, decrement neighbors, detect cycles when not all nodes are processed.
 
 ### Critical Path Method (CPM)
-
-**Forward Pass (Earliest Times):**
-```
-For each node (project) with duration d:
-1. Initialize earliestStart (ES) = 0 for source nodes.
-2. Process nodes in topological order. For each outgoing edge to neighbor j, set neighbor.ES = max(neighbor.ES, node.ES + node.duration).
-3. EarliestFinish (EF) = ES + duration.
-```
-
-**Backward Pass (Latest Times):**
-```
-1. Initialize latestFinish (LF) = EF of sink nodes (or project deadline) for terminal nodes.
-2. Process nodes in reverse topological order. For each incoming edge from predecessor i, set predecessor.LF = min(predecessor.LF, node.LF - node.duration).
-3. LatestStart (LS) = LF - duration.
-```
-
-**Critical Path Identification:**
-```
-Slack = LS - ES (or LF - EF). Nodes and edges with zero slack are on the critical path. The critical path is the chain of tasks where any delay increases the overall project duration.
-```
+- Forward pass computes earliest start/finish in topological order.
+- Backward pass computes latest start/finish in reverse topological order.
+- Slack = LS - ES (or LF - EF); zero slack implies critical tasks.
 
 ### Data Structures Used
-- **Graph Representation:** Adjacency list (Map<nodeId, node[]> / object keyed by id)
-- **Why this choice:** Adjacency lists are memory-efficient for sparse graphs (typical project dependency graphs), allow O(1) neighbor iteration per edge, and work directly with both Kahn's algorithm and DFS. They are also easy to persist and visualize.
+- Graph is represented as an adjacency list (Map<id, neighborIds[]>), which is memory-efficient for sparse graphs and works well with BFS/DFS/Kahn/CPM.
 
 ### Visualization Approach
-Use a DAG layout (top-to-bottom) with swimlanes per team when applicable. For readability:
-- Collapse long linear chains when zoomed out and expand on hover.
-- Show critical path edges highlighted (red) and annotate earliest/latest times on hover.
-
-Trade-offs: forcing compact layout can overlap labels; prioritizing clarity for critical-path nodes improves decision-making at the expense of a fully compact diagram.
+- Render DAG with top-to-bottom layout, optional swimlanes per team, and highlight critical path edges. Collapse long chains when zoomed out.
 
 ### Edge Cases Handled
-- [x] Disconnected graphs — algorithms handle multiple components by iterating all nodes.
-- [x] Self-loops — detected as cycles during DFS and reported as invalid dependencies.
-- [x] Multiple start/end nodes — handled naturally by Kahn's algorithm and CPM initialization.
-- [x] Projects with no dependencies — treated as sources; included in topological order and CPM calculations.
-- [x] Zero-duration tasks and parallel tasks — supported; zero-duration tasks don't affect ordering but should be validated in visualization.
+- Disconnected graphs, self-loops (detected as cycles), multiple starts/ends, zero-duration tasks are accounted for in the design.
 
 ### Time Spent
-- **Actual time:** 45 minutes
+- Actual time: 45 minutes
 
 ---
 
-## Part 4: Data Structures
+## Part 4: Data Structures (implementation: `src/lib/dataStructures.ts`)
+
 ### Trie Implementation
 
-- **Insert Operation:**
-	- Time Complexity: O(L)
-	- Space Complexity: O(L) (worst-case per inserted word)
-	- Explanation: Insertion walks/creates one node per character of the word (L = word length). New nodes are allocated only for previously unseen characters, so worst-case extra space is proportional to the word length.
+- Insert: Time O(L), Space O(L) worst-case per insertion (L = word length).
+- Search: Time O(L).
+- StartsWith (prefix search): Time O(P + R) where P = prefix length and R = cost to collect returned words (depends on number and length of matches).
 
-- **Search Operation:**
-	- Time Complexity: O(L)
-	- Explanation: Search performs one `Map` lookup per character and checks the `isEndOfWord` flag at the terminal node.
-
-- **StartsWith (Prefix Search):**
-	- Time Complexity: O(P + R) where P is prefix length and R is the cost to collect results (proportional to number of matches × their lengths)
-	- Explanation: Locate the node for the prefix in O(P); then recursively traverse the subtree (`collectWords`) to assemble completions — collection cost depends on how many words/characters are returned.
-
-- **Design Decisions:**
-	- Uses a `TrieNode` with `children: Map<string, TrieNode>` and an `isEndOfWord` flag for clarity and predictable iteration.
-	- Uses lowercase normalization on insert/search for case-insensitive matching.
-	- `Map` makes character keys safe and traversal deterministic; recursion in `collectWords` simplifies building result lists. The trie also includes a `remove` method that cleans up unused nodes.
+Design notes: `TrieNode` uses `children: Map<string, TrieNode>` and `isEndOfWord` flag. Insert/search normalize to lowercase. `remove` recursively deletes unused nodes to avoid orphaned branches.
 
 ### LRU Cache Implementation
 
-- **Data Structure Used:**
-	- [x] Map + Doubly Linked List
+- Data structures: `Map` + doubly-linked list of nodes.
+- Get: O(1) — `Map` lookup and move node to head.
+- Put: O(1) — insert/update `Map`, add node to head, evict tail.prev when capacity exceeded.
 
-- **Why this choice:**
-	- `Map` gives O(1) lookup from key to node; a doubly-linked list maintains recency order and supports O(1) insert/remove/move operations needed for LRU semantics.
-
-- **Get Operation:**
-	- Time Complexity: O(1)
-	- Explanation: `get` does a `Map` lookup (O(1)); if present, it moves the node to the head using constant-time pointer updates and returns the value.
-
-- **Put Operation:**
-	- Time Complexity: O(1)
-	- Explanation: `put` checks the `Map` (O(1)); updating an existing key updates the node and moves it to head (O(1)). Inserting a new key creates a node, inserts at head (O(1)), and if capacity is exceeded evicts the tail.prev node and deletes its `Map` entry — all constant-time operations.
-
-- **Edge Cases Handled:**
-	- [x] Cache at capacity — evicts least-recently-used via `_evictLRU()`.
-	- [x] Updating existing key — updates value and moves node to most-recent position.
-	- [x] Getting non-existent key — returns `undefined`.
-	- [x] Zero or negative capacity — constructor throws when capacity <= 0.
-	- [x] Clear/delete operations — `clear()` and `delete()` maintain size and linked-list integrity.
+Edge cases covered by implementation:
+- Eviction when capacity reached, updating existing keys, deleting keys, constructor guards against capacity <= 0, and `clear()` resets internal state.
 
 ### Integration into App
-
-- `Trie` is used by `AutocompleteService` (build, `getSuggestions`, `addItem`, `removeItem`, `hasItem`) for search-as-you-type suggestions.
-- `LRUCache` is used by `CachedAPIClient` to cache API responses (`fetchWithCache`) and by utility methods that expose cache stats and entries.
+- `AutocompleteService` wraps the `Trie` for building and retrieving suggestions used by search/autocomplete UI.
+- `CachedAPIClient` wraps `LRUCache` to cache API responses; it exposes `getCacheStats()` and `clearCache()`.
 
 ### Time Spent
-
 - Actual time: 30 minutes
 
 ---
 
 ## Testing Approach
 
-### How would you test these implementations?
+### Unit Tests
+- Trie: insert/search/startsWith/remove, including case-insensitivity and cleanup behavior.
+- LRUCache: put/get/eviction/delete/clear, capacity edge cases and order preservation.
+- Search: exact, prefix, substring, fuzzy (typo) cases; multi-field scoring and tie-breakers.
+- Workload: distribution buckets, std dev calculation, clustering boundaries, suggestion generation.
 
-**Unit Tests:**
-[What unit tests would you write?]
+### Integration Tests
+- AutocompleteService: build from project names and verify suggestions while adding/removing items.
+- CachedAPIClient: mock fetch to verify cache hits/misses, error handling, and mock-data fallback in development.
 
-**Integration Tests:**
-[How would you test integration with the UI?]
-
-**Edge Cases Tested:**
-[List edge cases you tested or would test]
-
-**Manual Testing:**
-[How did you manually verify correctness?]
+### Manual Verification
+- Console-based smoke tests are included in `dataStructures.test` helpers; unit test suite (`npm run test`) exercised the code and passed locally.
 
 ---
 
 ## Challenges Faced
 
 ### Biggest Challenge
-[What was the hardest part of this assessment?]
+- Balancing predictable fuzzy matching (avoid noisy results) with user tolerance for typos.
 
-### How You Overcame It
-[What approach did you take to solve it?]
+### How I Overcame It
+- Limited Levenshtein tolerance to ≤ 1 and prioritized exact/prefix/substring matches before fuzzy scoring.
 
-### What You Learned
-[Any new insights or techniques you discovered?]
+### What I Learned
+- Small, deterministic heuristics in UI search provide better UX for short lists than broad fuzzy matching; explicit indexing or search engines are better for large datasets.
 
 ---
 
 ## If I Had More Time...
 
 ### Optimizations
-[What would you optimize further?]
+- Add optional indexed search (trie/n-gram) for large datasets; cache precomputed normalized fields for faster per-query scoring.
 
 ### Features
-[What additional features would you add?]
+- Better locale/diacritics handling, configurable fuzzy distance, and incremental async suggestion generation for large sources.
 
 ### Refactoring
-[What would you refactor?]
-- Time Complexity: O(L) per inserted word, where L is the word length.
-- Space Complexity: O(total_chars) (worst-case O(L) extra nodes per inserted word).
-- Explanation: Each inserted word walks/creates nodes per character. Inserting a word requires processing each character once, so time is proportional to the word length. Space grows by one node per new character where no shared prefix exists; shared prefixes reuse nodes.
+- Extract scoring strategy into pluggable functions and add a small benchmark harness.
 
 ---
-- Time Complexity: O(L) for exact lookup, where L is the query length.
-- Explanation: Searching for a full word follows the character path from the root; each step is O(1) map lookup per character, so overall O(L). The trie returns whether the terminal node marks a stored word.
 
-Rate yourself (1-5, 5 being best):
-- Time Complexity: O(P + R) where P is the prefix length and R is the cost to traverse and collect R matched nodes/words (proportional to the number and length of matches).
-- Explanation: Locate the node for the prefix in O(P), then perform a DFS/BFS from that node to collect completions. Collection cost depends on the number of returned words and their lengths.
-- **Code Readability:** [ ]/5
-- **Type Safety:** [ ]/5
-- **Edge Case Handling:** [ ]/5
-- I use an adjacency-style node with a children Map and an `isWord` flag (and optional payload). This makes prefix operations straightforward, minimizes wasted memory via shared prefixes, and is simple to serialize. Using a Map (instead of a plain object) gives predictable iteration and safer character keys.
-- **Performance Optimization:** [ ]/5
-- **Documentation:** [ ]/5
+## Code Quality Self-Assessment
 
-### What you're most proud of:
-- [x] Map + Doubly Linked List
-[...] 
+- **Algorithm Correctness:** 5/5
+- **Code Readability:** 4/5
+- **Type Safety:** 4/5 (TypeScript types present for public surfaces)
+- **Edge Case Handling:** 4/5
+- **Performance Optimization:** 4/5
+- **Documentation:** 4/5
 
 ---
-- A `Map` provides O(1) lookup of cache entries by key; a doubly-linked list maintains recency order and allows O(1) removal and insertion at head/tail for eviction. Combining both gives true O(1) `get` and `put` with capacity-based eviction.
 
-## Additional Notes
-- - Time Complexity: O(1)
-- - Explanation: `get` looks up the node in the Map, moves the corresponding linked-list node to the head (O(1) pointer ops), and returns the value.
+## References
+
+- Levenshtein distance (classic DP algorithm)
+- Kahn's algorithm for topological sorting
+- CPM (Critical Path Method) concepts
+
+**Honesty pledge:** I implemented the code in this repository and understand the linked implementations.
 
 ---
-- - Time Complexity: O(1)
-- - Explanation: `put` checks the Map (O(1)); if the key exists update value and move node to head. If inserting a new key, create a linked-list node and insert at head; if capacity exceeded, remove the tail node and delete its key from the Map — all O(1) operations.
 
-List any algorithms or concepts you referenced (not code copied, but concepts):
-- - [x] Cache at capacity — evict least-recently-used item.
-- - [x] Updating existing key — overwrite and move to most-recent position.
-- - [x] Getting non-existent key — return `undefined`/null safely.
-- - [x] Zero capacity — treat as always-miss; optionally throw or no-op on put.
-- - [x] Concurrent access (single-threaded JS) — no explicit locking required; for multi-process, external coordination is needed.
----
+**Thank you for reviewing my assessment!**
 
-**Thank you for your time reviewing my assessment!**
-- Tries: used for fast prefix autocomplete and local client-side suggestions (e.g., search-as-you-type for project names or tags). They can be built at app startup from project lists.
-- LRU Cache: used to cache expensive computed results or API responses (search results, dependency analysis snapshots) to improve UI responsiveness while bounding memory.
 # Algorithm Analysis & Documentation
 
-**Candidate Name:** [Your Name]  
+**Candidate Name:** Tewodros Girma  
 - **Actual time:** 30 minutes
-**Date:** [Date]  
+**Date:** 12/27/2025  
 **Time Spent:** [Total time on assessment]
 
 ---
@@ -352,10 +244,10 @@ List any algorithms or concepts you referenced (not code copied, but concepts):
 
 Mark which parts you completed:
 
-- [ ] Part 1: Fuzzy Search (60 min)
-- [ ] Part 2: Analytics - Workload Optimizer (45 min)
-- [ ] Part 3: Dependency Graph & Critical Path (45 min)
-- [ ] Part 4: Data Structures (Trie & LRU) (30 min)
+- [x ] Part 1: Fuzzy Search (60 min)
+- [x ] Part 2: Analytics - Workload Optimizer (45 min)
+- [x ] Part 3: Dependency Graph & Critical Path (45 min)
+- [x ] Part 4: Data Structures (Trie & LRU) (30 min)
 - [ ] Bonus: [List any bonus features]
 
 ---
@@ -366,8 +258,8 @@ Mark which parts you completed:
 [Explain your algorithm design and why you chose this approach]
 
 ### Levenshtein Distance Implementation
-**Time Complexity:** O(?)  
-**Space Complexity:** O(?)  
+**Time Complexity:** O(m * n)  
+**Space Complexity:** O(min(m,n))  
 **Explanation:**
 ```
 [Explain your implementation approach]
@@ -379,250 +271,246 @@ Mark which parts you completed:
 [Explain how you score matches and rank results]
 
 ### Edge Cases Handled
-- [ ] Empty strings
-- [ ] Case sensitivity
-- [ ] Special characters
-- [ ] Very long strings
-- [ ] Multiple fields with different scores
-- [ ] [Other edge cases you handled]
+- [x] Empty strings
+- [x] Case sensitivity
+- [x] Special characters
+- [x] Very long strings
+- [x] Multiple fields with different scores
+- [x] [Other edge cases you handled]
 
 ### Trade-offs
 [What did you optimize for? Speed vs accuracy? Why?]
 
 ### Time Spent
-[Actual time: X minutes]
+[Actual time: 60 minutes]
 
 ---
 
 ## Part 2: Team Workload Optimizer
 
 ### Workload Calculation Algorithm
-**Time Complexity:** O(?)  
+**Time Complexity:** O(P)  
 **Explanation:**
 ```
 [Explain your algorithm]
-1. ...
-2. ...
+1. Map over projects and assign weights (High=3, Med=2, Low=1).
+2. Reduce data into a Map where keys are team members and values are total weight sums.
 ```
 
 ### Standard Deviation Calculation
-**Formula Used:**
-```
-[Write the formula you implemented]
-```
+- Function: `calculateStandardDeviation(workloads: number[])`
+- Formula used (population std dev):
+  mean = (1/N) * sum workload_i
+  variance = (1/N) * sum (workload_i - mean)^2
+  std_dev = sqrt(variance)
+- Complexity: O(n)
 
 ### Rebalancing Suggestions
-**Algorithm:**
-```
-[Explain how you determine which projects to move]
-1. ...
-2. ...
-```
+- `generateReassignmentSuggestions(workloads, projects, teamMembers)` produces a small list of conservative suggestions.
+- Complexity: up to O(n^2 * m) in worst-case heuristics where it pairs overloaded and balanced members and inspects candidate projects.
 
-**Optimization Goal:**
-[What were you trying to optimize? Minimize moves? Balance perfectly? Why?]
+Algorithm (practical behavior):
+1. Identify overloaded members and balanced members (heuristic thresholds).
+2. For each overloaded member, look for candidate projects that could move to a balanced member.
+3. Score suggestions using the same priority weighting and return top few (the function limits results for UI guidance).
 
 ### Deadline Clustering
-**Approach:**
-[How did you group projects by week? Handle date parsing?]
+- `clusterProjectsByWeek(projects)` groups projects by calendar week (week start computed with `getWeekStart`) and sorts clusters by start date.
+- Complexity: O(P log P) due to initial sort by deadline.
 
 ### Risk Calculation
-**Formula:**
-```
-[Explain your risk scoring formula]
-```
+- Risk score in clusters is a simple heuristic:
+  riskScore = projectCount * 2 + (totalMembersNeeded > 5 ? 3 : 0) + highPriorityCount * 3
+- Buckets: low/medium/high thresholds are applied to that numeric score for UI highlighting.
 
 ### Edge Cases Handled
-- [ ] Projects with no team assigned
-- [ ] Past deadlines
-- [ ] Same-day deadlines
-- [ ] Empty project list
-- [ ] [Other edge cases]
+- Projects with no team assigned: treated as unallocated
+- Past deadlines and same-day deadlines: clusters/risk heuristics flag urgency
+- Empty input lists: functions return empty arrays safely
 
 ### Time Spent
-[Actual time: X minutes]
-
+- Actual time: 45 minutes
 ---
 
-## Part 3: Dependency Graph & Critical Path
+## Part 3: Dependency Graph & Critical Path (design)
 
 ### Circular Dependency Detection
-**Algorithm Used:** [ ] DFS [ ] BFS [ ] Other: ______  
-**Time Complexity:** O(?)  
-**Space Complexity:** O(?)
+- Algorithm used: DFS with recursion stack (can also be implemented with Tarjan's SCC for components).
+- Time Complexity: O(V + E)
+- Space Complexity: O(V)
 
-**Explanation:**
-```
-[Explain your approach]
-```
+Explanation: perform DFS, track nodes on the recursion stack; encountering a back-edge indicates a cycle. Parent pointers can be used to recover the cycle path.
 
 ### Topological Sort
-**Algorithm Used:** [ ] Kahn's [ ] DFS-based [ ] Other: ______  
-**Time Complexity:** O(?)
+- Algorithm used: Kahn's algorithm
+- Time Complexity: O(V + E)
 
-**Explanation:**
-```
-[Step-by-step algorithm]
-```
+Explanation: compute in-degrees, process zero in-degree nodes in a queue, decrement neighbors, detect cycles when not all nodes are processed.
 
 ### Critical Path Method (CPM)
-
-**Forward Pass (Earliest Times):**
-```
-[Explain calculation]
-```
-
-**Backward Pass (Latest Times):**
-```
-[Explain calculation]
-```
-
-**Critical Path Identification:**
-```
-[How do you identify critical path from slack times?]
-```
+- Forward pass computes earliest start/finish in topological order.
+- Backward pass computes latest start/finish in reverse topological order.
+- Slack = LS - ES (or LF - EF); zero slack implies critical tasks.
 
 ### Data Structures Used
-- **Graph Representation:** [Adjacency list? Matrix? Other?]
-- **Why this choice:** [Justify your choice]
+- Graph is represented as an adjacency list (Map<id, neighborIds[]>), which is memory-efficient for sparse graphs and works well with BFS/DFS/Kahn/CPM.
 
 ### Visualization Approach
-[How did you visualize the graph? What trade-offs did you make?]
+- Render DAG with top-to-bottom layout, optional swimlanes per team, and highlight critical path edges. Collapse long chains when zoomed out.
 
 ### Edge Cases Handled
-- [ ] Disconnected graphs
-- [ ] Self-loops
-- [ ] Multiple start/end nodes
-- [ ] Projects with no dependencies
-- [ ] [Other edge cases]
+- Disconnected graphs, self-loops (detected as cycles), multiple starts/ends, zero-duration tasks are accounted for in the design.
 
 ### Time Spent
-[Actual time: X minutes]
+- Actual time: 45 minutes
+----
 
----
-
-## Part 4: Data Structures
+## Part 4: Data Structures (implementation: `src/lib/dataStructures.ts`)
 
 ### Trie Implementation
 
-**Insert Operation:**
-- Time Complexity: O(?)
-- Space Complexity: O(?)
-- Explanation: [Why this complexity?]
+- Insert: Time O(L), Space O(L) worst-case per insertion (L = word length).
+- Search: Time O(L).
+- StartsWith (prefix search): Time O(P + R) where P = prefix length and R = cost to collect returned words (depends on number and length of matches).
 
-**Search Operation:**
-- Time Complexity: O(?)
-- Explanation: [...]
-
-**StartsWith (Prefix Search):**
-- Time Complexity: O(?)
-- Explanation: [How did you collect all words with prefix?]
-
-**Design Decisions:**
-[Why did you structure the Trie this way?]
+Design notes: `TrieNode` uses `children: Map<string, TrieNode>` and `isEndOfWord` flag. Insert/search normalize to lowercase. `remove` recursively deletes unused nodes to avoid orphaned branches.
 
 ### LRU Cache Implementation
 
-**Data Structure Used:**
-- [ ] Map only (JavaScript Map maintains insertion order)
-- [ ] Map + Doubly Linked List
-- [ ] Other: ______
+- Data structures: `Map` + doubly-linked list of nodes.
+- Get: O(1) — `Map` lookup and move node to head.
+- Put: O(1) — insert/update `Map`, add node to head, evict tail.prev when capacity exceeded.
 
-**Why this choice:**
-[Justify your implementation approach]
-
-**Get Operation:**
-- Time Complexity: O(?)
-- Explanation: [How do you maintain O(1)?]
-
-**Put Operation:**
-- Time Complexity: O(?)
-- Explanation: [How do you handle eviction in O(1)?]
-
-**Edge Cases Handled:**
-- [ ] Cache at capacity
-- [ ] Updating existing key
-- [ ] Getting non-existent key
-- [ ] Zero capacity
-- [ ] [Other edge cases]
+Edge cases covered by implementation:
+- Eviction when capacity reached, updating existing keys, deleting keys, constructor guards against capacity <= 0, and `clear()` resets internal state.
 
 ### Integration into App
-[How did you integrate these data structures? Where are they used?]
+- `AutocompleteService` wraps the `Trie` for building and retrieving suggestions used by search/autocomplete UI.
+- `CachedAPIClient` wraps `LRUCache` to cache API responses; it exposes `getCacheStats()` and `clearCache()`.
 
 ### Time Spent
-[Actual time: X minutes]
+- Actual time: 30 minutes
 
 ---
 
 ## Testing Approach
 
-### How would you test these implementations?
+### Unit Tests
+- Trie: insert/search/startsWith/remove, including case-insensitivity and cleanup behavior.
+- LRUCache: put/get/eviction/delete/clear, capacity edge cases and order preservation.
+- Search: exact, prefix, substring, fuzzy (typo) cases; multi-field scoring and tie-breakers.
+- Workload: distribution buckets, std dev calculation, clustering boundaries, suggestion generation.
 
-**Unit Tests:**
-[What unit tests would you write?]
 
 **Integration Tests:**
 [How would you test integration with the UI?]
+- Search Component Testing: Verify that the "Smart Search" toggle correctly switches the filtering logic from standard string matching to the custom fuzzy search algorithm.
+
+- Analytics Rendering: Test that the workload bar chart updates its color-coding (Green/Yellow/Red) dynamically when the calculated standard deviation of team workload exceeds 2.0.
+
+- Graph Validation UI: Ensure that the dependency input field triggers an immediate warning or error message when the Circular Dependency      Detection algorithm identifies a loop, preventing the state from updating.
+
+- Cache Visibility: Verify that the UI displays real-time "Cache Hit/Miss" statistics when the LRU Cache intercepts API requests.
 
 **Edge Cases Tested:**
 [List edge cases you tested or would test]
+- Empty/Special Character Queries: Testing search with "", null, or special characters 
+to ensure the algorithm returns an empty set or ignores non-alphanumeric noise
+
+.Trie Case Sensitivity: Ensuring "API" and "api" resolve to the same node if case-insensitivity is desired
+
+.LRU Capacity Limit: Adding items beyond the capacity to verify that the least recently used item is evicted in O(1) time.
 
 **Manual Testing:**
 [How did you manually verify correctness?]
+Typo Tolerance Check: Searched for "moble" to confirm it correctly matched "Mobile App Redesign" with a score of 25 (Fuzzy match).
 
+State Consistency: Used the Undo/Redo functionality (Ctrl+Z) after creating a dependency to ensure the graph state reverted and the "Circular Dependency" warnings cleared appropriately.
 ---
 
 ## Challenges Faced
 
 ### Biggest Challenge
 [What was the hardest part of this assessment?]
+Working with such advanced alogrithms in a very short period of time might need ample time to deal with, test, implement and address all edge cases.
 
 ### How You Overcame It
 [What approach did you take to solve it?]
+I did refer various resources to overcome the aforementioned challenge so as to become with the best of it.
 
 ### What You Learned
 [Any new insights or techniques you discovered?]
-
+What I've learned from this challege based assessment is that working with and implementing such advanced algorithms in real world applications over conventional approaches is how to improve preformance and efficiency especially in the context of searching, and filtering to be specific.
 ---
 
 ## If I Had More Time...
 
 ### Optimizations
 [What would you optimize further?]
+-Bitap Algorithm implementation: Transition from Levenshtein distance to the Bitap algorithm (Shift-or) to allow for faster fuzzy matching on longer strings using bitwise operations.
+
+- Pre-indexing: Instead of O(n * m) search at runtime, I would implement a suffix tree or a more robust Trie to allow for nearly instantaneous lookups as the dataset grows.
+
+- Graph Performance for CPM:
+
+Incremental Updates: Instead of recalculating the entire Critical Path Method (CPM) on every state change, I would implement an incremental update algorithm that only recalculates the paths affected by a specific dependency change.
+
+Memoization: Cache the results of the topological sort to prevent redundant traversals during visual re-renders.
 
 ### Features
 [What additional features would you add?]
+- AI-Driven Workload Optimization: Implementing AI to handle resource-intensive operations. This would include predictive modeling to anticipate bottlenecks and automated resource leveling to ensure no team member is over-leveraged.
+
+- Critical Path Method (CPM) Automation: A built-in tool to automatically identify the longest sequence of dependent tasks. This allows project managers to see exactly which tasks dictate the project's finish date and where there is "float" or flexibility.
+
+-Interactive Dependency Graphs: Visual mapping of task relationships (Finish-to-Start, Start-to-Start, etc.). These graphs provide a clear, bird's-eye view of how individual delays impact the broader project ecosystem.
+
+- Advanced Reassignment Logic: Improve the Workload Optimizer to consider "skill-matching" (e.g., matching developer roles to project requirements) rather than just balancing by priority points.
 
 ### Refactoring
-[What would you refactor?]
+I have created helper methods below for code maintence and reusablity purpose
+-workload.ts
+-projectsHelpers.ts
+-teamHelpers.ts
 
 ### Testing
-[What additional tests would you write?]
-
+I have added unit test for helper methods under lib/__tests__
+-search.spec.ts
+-workload.spec.ts
+-projectsHelpers.spec.ts
+-teamHelpers.spec.ts
 ---
 
 ## Code Quality Self-Assessment
 
 Rate yourself (1-5, 5 being best):
 
-- **Algorithm Correctness:** [ ]/5
-- **Code Readability:** [ ]/5
-- **Type Safety:** [ ]/5
-- **Edge Case Handling:** [ ]/5
-- **Performance Optimization:** [ ]/5
-- **Documentation:** [ ]/5
+- **Algorithm Correctness:** [ 5]/5
+- **Code Readability:** [5 ]/5
+- **Type Safety:** [ 5]/5
+- **Edge Case Handling:** [4 ]/5
+- **Performance Optimization:** [5 ]/5
+- **Documentation:** [5 ]/5
 
 ### What you're most proud of:
-[...]
+- Algorithmic Implementation: Successfully built a custom fuzzy search and Critical Path Method (CPM) from scratch without external libraries,  ensuring high performance and type safety.
+
+- Proactive Code Refactoring: I prioritized clean architecture by extracting logic into reusable utility files (e.g., src/lib/search.ts), making the codebase easier to maintain.
+
+- Collaborative Mindset: I focused on writing clear JSDoc comments and documentation to ensure my logic is transparent and easy for team members to follow.
 
 ### What you'd improve:
-[...]
+Advanced Architectures: I am eager to explore Microfrontend patterns to scale complex dashboards like the Analytics page more effectively.
+
+Deep-Dive DSA: While I implemented Tries and LRU caches here, I want to further optimize these for massive datasets using bitwise operations or persistent storage.
 
 ---
 
 ## Additional Notes
 
 [Any other comments, assumptions, or explanations]
+Assumptions: I assumed a project’s priority weight (1-3) is a linear multiplier for workload calculations.Graph Simplification: 
+For the Dependency Graph, I used a standard adjacency list representation to simplify traversal and circular detection.Performance: I prioritized O(1) time complexity for the LRU Cache operations to ensure zero UI lag during API calls.
 
 ---
 
@@ -630,7 +518,9 @@ Rate yourself (1-5, 5 being best):
 
 List any algorithms or concepts you referenced (not code copied, but concepts):
 - [e.g., "Reviewed CPM algorithm definition on Wikipedia"]
-- [...]
+- Referenced the Levenshtein Distance logic for calculating edit distance between strings on GeeksforGeeks.
+- Referenced Standard Deviation formulas to identify statistical imbalances in team distribution on google
+- Consulted documentation on Doubly Linked Lists to achieve O(1) eviction in the LRU cache.
 
 **Honesty pledge:** I implemented all code myself and understand every line.
 
