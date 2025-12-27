@@ -31,6 +31,11 @@ import { projectsApi, type ProjectFilters, type Project } from "@/lib/api";
 import { searchProjects, applyFuzzySearchWithFilters } from "@/lib/search";
 import DependencyGraph from "@/components/DependencyGraph";
 import { AutocompleteService, CachedAPIClient } from "@/lib/dataStructures";
+import {
+  convertToDependencyFormat,
+  getProjectEstimatedDays as getProjectEstimatedDaysHelper,
+  getProjectDependencyCount as getProjectDependencyCountHelper,
+} from "@/lib/projectsHelpers";
 
 const statusColors = {
   "In Progress": "bg-primary/10 text-primary border-primary/20",
@@ -69,50 +74,6 @@ interface DependencyProject {
   estimatedDays: number;
 }
 
-// Helper to convert API project to DependencyGraph project format
-function convertToDependencyFormat(projects: Project[]): DependencyProject[] {
-  return projects.map((project) => {
-    // Estimate days based on project properties
-    let estimatedDays = 14; // Default
-
-    // Estimate based on priority (higher priority = shorter timeline)
-    switch (project.priority) {
-      case "High":
-        estimatedDays = Math.max(7, Math.min(project.tasks.total * 2, 30));
-        break;
-      case "Medium":
-        estimatedDays = Math.max(10, Math.min(project.tasks.total * 3, 45));
-        break;
-      case "Low":
-        estimatedDays = Math.max(14, Math.min(project.tasks.total * 4, 60));
-        break;
-    }
-
-    // Adjust based on progress
-    if (project.tasks.total > 0) {
-      const progressPercentage = project.tasks.completed / project.tasks.total;
-      estimatedDays = Math.max(
-        1,
-        Math.ceil(estimatedDays * (1 - progressPercentage))
-      );
-    }
-
-    // For dependencies, retrieve from localStorage
-    const storedDependencies = localStorage.getItem(
-      `project-deps-${project.id}`
-    );
-    const dependencies = storedDependencies
-      ? JSON.parse(storedDependencies)
-      : [];
-
-    return {
-      id: project.id,
-      name: project.name,
-      dependencies,
-      estimatedDays,
-    };
-  });
-}
 
 // Custom hook for autocomplete with Trie
 function useAutocomplete(items: string[], maxSuggestions: number = 5) {
@@ -575,21 +536,15 @@ export default function Projects() {
 
   const hasActiveFilters = Object.values(filters).some((v) => v) || searchQuery;
 
-  // Get estimated days for a project
+  // Get estimated days for a project (wrapper to use current dependencyProjects state)
   const getProjectEstimatedDays = useCallback(
-    (projectId: number) => {
-      const depProject = dependencyProjects.find((p) => p.id === projectId);
-      return depProject?.estimatedDays || 14;
-    },
+    (projectId: number) => getProjectEstimatedDaysHelper(dependencyProjects, projectId),
     [dependencyProjects]
   );
 
   // Get dependency count for a project
   const getProjectDependencyCount = useCallback(
-    (projectId: number) => {
-      const depProject = dependencyProjects.find((p) => p.id === projectId);
-      return depProject?.dependencies.length || 0;
-    },
+    (projectId: number) => getProjectDependencyCountHelper(dependencyProjects, projectId),
     [dependencyProjects]
   );
 

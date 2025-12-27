@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { teamApi, type TeamFilters, type TeamMember } from "@/lib/api";
 import { AutocompleteService, CachedAPIClient } from "@/lib/dataStructures";
+import {
+  calculateTeamStats,
+  filterMockTeamData,
+  generateTeamAutocompleteItems,
+} from "@/lib/teamHelpers";
 
 // Mock team data for development
 const MOCK_TEAM_DATA: TeamMember[] = [
@@ -151,22 +156,9 @@ function useTeamAutocomplete(teamMembers?: TeamMember[]) {
       if (currentTeamIds !== lastTeamIds) {
         lastTeamMembersRef.current = teamMembers;
 
-        const items = new Set<string>();
-        teamMembers.forEach((member) => {
-          items.add(member.name.toLowerCase());
-          items.add(member.role.toLowerCase());
-          const emailUser = member.email.split("@")[0];
-          items.add(emailUser.toLowerCase());
-
-          // Add name parts
-          const nameParts = member.name.toLowerCase().split(" ");
-          nameParts.forEach((part) => {
-            if (part.length > 1) items.add(part);
-          });
-        });
-
+        const items = generateTeamAutocompleteItems(teamMembers);
         const service = getService();
-        service.build(Array.from(items));
+        service.build(items);
       }
     }
   }, [teamMembers, getService]);
@@ -236,29 +228,7 @@ export default function Team() {
         return data;
       } catch (error) {
         // Use mock data and apply filters
-        let filteredData = [...MOCK_TEAM_DATA];
-
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase();
-          filteredData = filteredData.filter(
-            (member) =>
-              member.name.toLowerCase().includes(searchLower) ||
-              member.role.toLowerCase().includes(searchLower) ||
-              member.email.toLowerCase().includes(searchLower)
-          );
-        }
-
-        if (filters.status === "Active") {
-          filteredData = filteredData.filter(
-            (member) => member.status === "Active"
-          );
-        } else if (filters.status === "Inactive") {
-          filteredData = filteredData.filter(
-            (member) => member.status === "Inactive"
-          );
-        }
-
-        return filteredData;
+        return filterMockTeamData(MOCK_TEAM_DATA, filters);
       }
     },
   });
@@ -371,25 +341,7 @@ export default function Team() {
   };
 
   // Calculate statistics - memoized
-  const teamStats = useMemo(() => {
-    if (!teamMembers || teamMembers.length === 0) {
-      return {
-        active: 0,
-        inactive: 0,
-        totalProjects: 0,
-        uniqueRoles: 0,
-        avgProjects: 0,
-      };
-    }
-
-    const active = teamMembers.filter((m) => m.status === "Active").length;
-    const inactive = teamMembers.filter((m) => m.status === "Inactive").length;
-    const totalProjects = teamMembers.reduce((sum, m) => sum + m.projects, 0);
-    const uniqueRoles = new Set(teamMembers.map((m) => m.role)).size;
-    const avgProjects = totalProjects / teamMembers.length;
-
-    return { active, inactive, totalProjects, uniqueRoles, avgProjects };
-  }, [teamMembers]);
+  const teamStats = useMemo(() => calculateTeamStats(teamMembers), [teamMembers]);
 
   if (isLoading) {
     return (

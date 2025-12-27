@@ -200,55 +200,57 @@ Trade-offs: forcing compact layout can overlap labels; prioritizing clarity for 
 ---
 
 ## Part 4: Data Structures
-
 ### Trie Implementation
 
-**Insert Operation:**
-- Time Complexity: O(?)
-- Space Complexity: O(?)
-- Explanation: [Why this complexity?]
+- **Insert Operation:**
+	- Time Complexity: O(L)
+	- Space Complexity: O(L) (worst-case per inserted word)
+	- Explanation: Insertion walks/creates one node per character of the word (L = word length). New nodes are allocated only for previously unseen characters, so worst-case extra space is proportional to the word length.
 
-**Search Operation:**
-- Time Complexity: O(?)
-- Explanation: [...]
+- **Search Operation:**
+	- Time Complexity: O(L)
+	- Explanation: Search performs one `Map` lookup per character and checks the `isEndOfWord` flag at the terminal node.
 
-**StartsWith (Prefix Search):**
-- Time Complexity: O(?)
-- Explanation: [How did you collect all words with prefix?]
+- **StartsWith (Prefix Search):**
+	- Time Complexity: O(P + R) where P is prefix length and R is the cost to collect results (proportional to number of matches × their lengths)
+	- Explanation: Locate the node for the prefix in O(P); then recursively traverse the subtree (`collectWords`) to assemble completions — collection cost depends on how many words/characters are returned.
 
-**Design Decisions:**
-[Why did you structure the Trie this way?]
+- **Design Decisions:**
+	- Uses a `TrieNode` with `children: Map<string, TrieNode>` and an `isEndOfWord` flag for clarity and predictable iteration.
+	- Uses lowercase normalization on insert/search for case-insensitive matching.
+	- `Map` makes character keys safe and traversal deterministic; recursion in `collectWords` simplifies building result lists. The trie also includes a `remove` method that cleans up unused nodes.
 
 ### LRU Cache Implementation
 
-**Data Structure Used:**
-- [ ] Map only (JavaScript Map maintains insertion order)
-- [ ] Map + Doubly Linked List
-- [ ] Other: ______
+- **Data Structure Used:**
+	- [x] Map + Doubly Linked List
 
-**Why this choice:**
-[Justify your implementation approach]
+- **Why this choice:**
+	- `Map` gives O(1) lookup from key to node; a doubly-linked list maintains recency order and supports O(1) insert/remove/move operations needed for LRU semantics.
 
-**Get Operation:**
-- Time Complexity: O(?)
-- Explanation: [How do you maintain O(1)?]
+- **Get Operation:**
+	- Time Complexity: O(1)
+	- Explanation: `get` does a `Map` lookup (O(1)); if present, it moves the node to the head using constant-time pointer updates and returns the value.
 
-**Put Operation:**
-- Time Complexity: O(?)
-- Explanation: [How do you handle eviction in O(1)?]
+- **Put Operation:**
+	- Time Complexity: O(1)
+	- Explanation: `put` checks the `Map` (O(1)); updating an existing key updates the node and moves it to head (O(1)). Inserting a new key creates a node, inserts at head (O(1)), and if capacity is exceeded evicts the tail.prev node and deletes its `Map` entry — all constant-time operations.
 
-**Edge Cases Handled:**
-- [ ] Cache at capacity
-- [ ] Updating existing key
-- [ ] Getting non-existent key
-- [ ] Zero capacity
-- [ ] [Other edge cases]
+- **Edge Cases Handled:**
+	- [x] Cache at capacity — evicts least-recently-used via `_evictLRU()`.
+	- [x] Updating existing key — updates value and moves node to most-recent position.
+	- [x] Getting non-existent key — returns `undefined`.
+	- [x] Zero or negative capacity — constructor throws when capacity <= 0.
+	- [x] Clear/delete operations — `clear()` and `delete()` maintain size and linked-list integrity.
 
 ### Integration into App
-[How did you integrate these data structures? Where are they used?]
+
+- `Trie` is used by `AutocompleteService` (build, `getSuggestions`, `addItem`, `removeItem`, `hasItem`) for search-as-you-type suggestions.
+- `LRUCache` is used by `CachedAPIClient` to cache API responses (`fetchWithCache`) and by utility methods that expose cache stats and entries.
 
 ### Time Spent
-[Actual time: X minutes]
+
+- Actual time: 30 minutes
 
 ---
 
