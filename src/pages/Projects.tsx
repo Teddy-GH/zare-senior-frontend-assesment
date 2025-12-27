@@ -12,7 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Plus,
   MoreVertical,
@@ -26,6 +35,17 @@ import {
   Clock,
   Check,
   AlertCircle,
+  Filter,
+  SortAsc,
+  SortDesc,
+  BarChart3,
+  ChevronRight,
+  ExternalLink,
+  Eye,
+  Shield,
+  Target,
+  Zap,
+  TrendingUp,
 } from "lucide-react";
 import { projectsApi, type ProjectFilters, type Project } from "@/lib/api";
 import { searchProjects, applyFuzzySearchWithFilters } from "@/lib/search";
@@ -36,17 +56,27 @@ import {
   getProjectEstimatedDays as getProjectEstimatedDaysHelper,
   getProjectDependencyCount as getProjectDependencyCountHelper,
 } from "@/lib/projectsHelpers";
+import useCachedAPI from "@/hooks/useCachedAPI";
 
+// Enhanced color schemes with gradients and better contrast
 const statusColors = {
-  "In Progress": "bg-primary/10 text-primary border-primary/20",
-  Planning: "bg-accent/10 text-accent border-accent/20",
-  Review: "bg-green-100 text-green-700 border-green-200",
+  "In Progress": "bg-gradient-to-r from-blue-500/20 to-blue-600/20 text-blue-700 border-blue-300/50",
+  Planning: "bg-gradient-to-r from-purple-500/20 to-purple-600/20 text-purple-700 border-purple-300/50",
+  Review: "bg-gradient-to-r from-green-500/20 to-green-600/20 text-green-700 border-green-300/50",
 };
 
 const priorityColors = {
-  High: "bg-red-100 text-red-700 border-red-200",
-  Medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  Low: "bg-gray-100 text-gray-700 border-gray-200",
+  High: "bg-gradient-to-r from-rose-500/20 to-rose-600/20 text-rose-700 border-rose-300/50",
+  Medium: "bg-gradient-to-r from-amber-500/20 to-amber-600/20 text-amber-700 border-amber-300/50",
+  Low: "bg-gradient-to-r from-slate-500/20 to-slate-600/20 text-slate-700 border-slate-300/50",
+};
+
+// Progress bar colors based on completion percentage
+const getProgressColor = (percentage: number) => {
+  if (percentage >= 80) return "bg-gradient-to-r from-green-500 to-emerald-600";
+  if (percentage >= 50) return "bg-gradient-to-r from-blue-500 to-cyan-600";
+  if (percentage >= 30) return "bg-gradient-to-r from-amber-500 to-orange-600";
+  return "bg-gradient-to-r from-rose-500 to-pink-600";
 };
 
 // Debounce function for better performance
@@ -74,14 +104,12 @@ interface DependencyProject {
   estimatedDays: number;
 }
 
-
 // Custom hook for autocomplete with Trie
 function useAutocomplete(items: string[], maxSuggestions: number = 5) {
   const [autocompleteService] = useState(() => new AutocompleteService());
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Initialize autocomplete service with items
   useEffect(() => {
     if (items.length > 0) {
       autocompleteService.build(items);
@@ -130,32 +158,6 @@ function useAutocomplete(items: string[], maxSuggestions: number = 5) {
   };
 }
 
-// Custom hook for cached API calls
-function useCachedAPI() {
-  const [cachedClient] = useState(() => new CachedAPIClient(50)); // 50 items cache capacity
-
-  const fetchWithCache = useCallback(
-    async (url: string, options?: RequestInit) => {
-      return await cachedClient.fetchWithCache(url, options);
-    },
-    [cachedClient]
-  );
-
-  const getCacheStats = useCallback(() => {
-    return cachedClient.getCacheStats();
-  }, [cachedClient]);
-
-  const clearCache = useCallback(() => {
-    cachedClient.clearCache();
-  }, [cachedClient]);
-
-  return {
-    fetchWithCache,
-    getCacheStats,
-    clearCache,
-  };
-}
-
 export default function Projects() {
   const [filters, setFilters] = useState<ProjectFilters>({});
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -166,8 +168,9 @@ export default function Projects() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [usingMockData, setUsingMockData] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("all");
 
-  const debouncedSearchQuery = useDebounce(searchQuery, 150); // 150ms delay
+  const debouncedSearchQuery = useDebounce(searchQuery, 150);
 
   // Initialize cached API client
   const { fetchWithCache, getCacheStats, clearCache } = useCachedAPI();
@@ -183,14 +186,12 @@ export default function Projects() {
     queryKey: ["projects"],
     queryFn: async () => {
       try {
-        // Try the cached API client first
         const data = await fetchWithCache("/api/projects");
         setUsingMockData(false);
         return data;
       } catch (apiError) {
         console.log("API failed, trying direct API call...");
 
-        // Fallback to direct API call
         try {
           const response = await fetch("/api/projects", {
             headers: {
@@ -209,7 +210,6 @@ export default function Projects() {
           console.log("Direct API also failed, using mock data");
           setUsingMockData(true);
 
-          // Return mock data for development/demo
           return [
             {
               id: 1,
@@ -297,19 +297,17 @@ export default function Projects() {
         }
       }
     },
-    staleTime: 30000, // 30 seconds
+    staleTime: 30000,
   });
 
-  // Initialize autocomplete service with project and team names
+  // Initialize autocomplete service
   const autocompleteItems = useMemo(() => {
     if (!allProjects) return [];
 
-    // Extract project names and team names for autocomplete
     const items = new Set<string>();
     allProjects.forEach((project) => {
       items.add(project.name.toLowerCase());
       items.add(project.team.toLowerCase());
-      // Also add words from description for better search
       project.description
         .toLowerCase()
         .split(/\s+/)
@@ -329,7 +327,7 @@ export default function Projects() {
     addItem: addAutocompleteItem,
   } = useAutocomplete(autocompleteItems, 8);
 
-  // Update dependency projects when allProjects changes
+  // Update dependency projects
   useEffect(() => {
     if (allProjects) {
       const converted = convertToDependencyFormat(allProjects);
@@ -337,7 +335,7 @@ export default function Projects() {
     }
   }, [allProjects]);
 
-  // Update autocomplete suggestions when search query changes
+  // Update autocomplete suggestions
   useEffect(() => {
     if (debouncedSearchQuery.trim() && isSearchFocused) {
       getAutocompleteSuggestions(debouncedSearchQuery.toLowerCase());
@@ -347,11 +345,10 @@ export default function Projects() {
     }
   }, [debouncedSearchQuery, isSearchFocused, getAutocompleteSuggestions]);
 
-  // Apply filters and search on the client side
+  // Apply filters and search
   const filteredProjects = useMemo(() => {
     if (!allProjects) return [];
 
-    // Apply fuzzy search with exact filters
     return applyFuzzySearchWithFilters(
       allProjects,
       debouncedSearchQuery,
@@ -359,17 +356,23 @@ export default function Projects() {
         status: filters.status,
         priority: filters.priority,
       },
-      ["name", "description", "status", "priority"] // Search fields
+      ["name", "description", "status", "priority"]
     );
   }, [allProjects, debouncedSearchQuery, filters.status, filters.priority]);
 
-  // Sort projects if needed
+  // Apply tab filtering
+  const tabFilteredProjects = useMemo(() => {
+    if (activeTab === "all") return filteredProjects;
+    return filteredProjects.filter(project => project.status === activeTab);
+  }, [filteredProjects, activeTab]);
+
+  // Sort projects
   const sortedProjects = useMemo(() => {
     if (!filters.sortBy || filters.sortBy === "none") {
-      return filteredProjects;
+      return tabFilteredProjects;
     }
 
-    return [...filteredProjects].sort((a, b) => {
+    return [...tabFilteredProjects].sort((a, b) => {
       const order = filters.sortOrder === "desc" ? -1 : 1;
 
       switch (filters.sortBy) {
@@ -389,9 +392,9 @@ export default function Projects() {
           return 0;
       }
     });
-  }, [filteredProjects, filters.sortBy, filters.sortOrder]);
+  }, [tabFilteredProjects, filters.sortBy, filters.sortOrder]);
 
-  // Handle adding a dependency
+  // Dependency handlers
   const handleAddDependency = useCallback((fromId: number, toId: number) => {
     setDependencyProjects((prev) => {
       const newProjects = [...prev];
@@ -406,7 +409,6 @@ export default function Projects() {
           dependencies: [...newProjects[fromProjectIndex].dependencies, toId],
         };
 
-        // Also update localStorage
         localStorage.setItem(
           `project-deps-${fromId}`,
           JSON.stringify(newProjects[fromProjectIndex].dependencies)
@@ -417,7 +419,6 @@ export default function Projects() {
     });
   }, []);
 
-  // Handle removing a dependency
   const handleRemoveDependency = useCallback(
     (projectId: number, dependencyId: number) => {
       setDependencyProjects((prev) => {
@@ -432,7 +433,6 @@ export default function Projects() {
             ),
           };
 
-          // Also update localStorage
           localStorage.setItem(
             `project-deps-${projectId}`,
             JSON.stringify(newProjects[projectIndex].dependencies)
@@ -445,6 +445,7 @@ export default function Projects() {
     []
   );
 
+  // Filter and search handlers
   const updateFilter = useCallback(
     (key: keyof ProjectFilters, value: string | undefined) => {
       setFilters((prev) => ({
@@ -460,8 +461,6 @@ export default function Projects() {
       const value = e.target.value;
       setSearchQuery(value);
       setSelectedSuggestionIndex(-1);
-
-      // Remove search from filters since we handle it client-side
       const { search, ...rest } = filters;
       setFilters(rest);
     },
@@ -476,7 +475,6 @@ export default function Projects() {
   }, [searchQuery]);
 
   const handleSearchBlur = useCallback(() => {
-    // Delay hiding suggestions to allow click events on suggestions
     setTimeout(() => {
       setIsSearchFocused(false);
       setShowSuggestions(false);
@@ -532,23 +530,22 @@ export default function Projects() {
     setSearchQuery("");
     setSelectedSuggestionIndex(-1);
     setShowSuggestions(false);
+    setActiveTab("all");
   }, []);
 
-  const hasActiveFilters = Object.values(filters).some((v) => v) || searchQuery;
+  const hasActiveFilters = Object.values(filters).some((v) => v) || searchQuery || activeTab !== "all";
 
-  // Get estimated days for a project (wrapper to use current dependencyProjects state)
+  // Helper functions
   const getProjectEstimatedDays = useCallback(
     (projectId: number) => getProjectEstimatedDaysHelper(dependencyProjects, projectId),
     [dependencyProjects]
   );
 
-  // Get dependency count for a project
   const getProjectDependencyCount = useCallback(
     (projectId: number) => getProjectDependencyCountHelper(dependencyProjects, projectId),
     [dependencyProjects]
   );
 
-  // Update autocomplete when new projects are added
   const handleNewProject = useCallback(
     (projectName: string, teamName: string) => {
       addAutocompleteItem(projectName.toLowerCase());
@@ -556,6 +553,18 @@ export default function Projects() {
     },
     [addAutocompleteItem]
   );
+
+  // Calculate stats for header
+  const projectStats = useMemo(() => {
+    if (!allProjects) return null;
+    
+    const total = allProjects.length;
+    const completed = allProjects.filter(p => p.tasks.completed === p.tasks.total).length;
+    const inProgress = allProjects.filter(p => p.status === "In Progress").length;
+    const highPriority = allProjects.filter(p => p.priority === "High").length;
+    
+    return { total, completed, inProgress, highPriority };
+  }, [allProjects]);
 
   if (isLoading) {
     return (
@@ -575,478 +584,640 @@ export default function Projects() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Projects</h1>
-          <p className="text-muted-foreground mt-2">
-            Manage and track all your team projects
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-md bg-muted p-1">
+      {/* Enhanced Header with Stats */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              Project Dashboard
+            </h1>
+            <p className="text-muted-foreground mt-2">
+              Manage and track all your team projects with advanced analytics
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center rounded-lg bg-gradient-to-r from-blue-50 to-purple-50 p-1">
+              <Button
+                variant={viewMode === "list" ? "default" : "ghost"}
+                size="sm"
+                className="gap-2"
+                onClick={() => setViewMode("list")}
+              >
+                <List className="h-4 w-4" />
+                List View
+              </Button>
+              <Button
+                variant={viewMode === "graph" ? "default" : "ghost"}
+                size="sm"
+                className="gap-2"
+                onClick={() => setViewMode("graph")}
+              >
+                <Network className="h-4 w-4" />
+                Graph View
+              </Button>
+            </div>
             <Button
-              variant={viewMode === "list" ? "default" : "ghost"}
-              size="sm"
-              className="gap-2"
-              onClick={() => setViewMode("list")}
+              className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              onClick={() => {
+                const newProjectName = `Project ${allProjects ? allProjects.length + 1 : 1}`;
+                const newTeamName = "New Team";
+                handleNewProject(newProjectName, newTeamName);
+                alert(`New project "${newProjectName}" would be created`);
+              }}
             >
-              <List className="h-4 w-4" />
-              List View
-            </Button>
-            <Button
-              variant={viewMode === "graph" ? "default" : "ghost"}
-              size="sm"
-              className="gap-2"
-              onClick={() => setViewMode("graph")}
-            >
-              <Network className="h-4 w-4" />
-              Graph View
+              <Plus className="h-4 w-4" />
+              New Project
             </Button>
           </div>
-          <Button
-            className="gap-2"
-            onClick={() => {
-              // In a real app, this would open a project creation modal
-              const newProjectName = `Project ${
-                allProjects ? allProjects.length + 1 : 1
-              }`;
-              const newTeamName = "New Team";
-              handleNewProject(newProjectName, newTeamName);
-              alert(`New project "${newProjectName}" would be created`);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            New Project
-          </Button>
         </div>
+
+        {/* Stats Cards */}
+        {projectStats && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-blue-50 to-blue-100">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-blue-700">Total Projects</p>
+                    <h3 className="text-2xl font-bold text-blue-900">{projectStats.total}</h3>
+                  </div>
+                  <div className="p-2 rounded-full bg-blue-500/20">
+                    <BarChart3 className="h-5 w-5 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-green-50 to-green-100">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-green-700">In Progress</p>
+                    <h3 className="text-2xl font-bold text-green-900">{projectStats.inProgress}</h3>
+                  </div>
+                  <div className="p-2 rounded-full bg-green-500/20">
+                    <TrendingUp className="h-5 w-5 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-amber-100">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-amber-700">High Priority</p>
+                    <h3 className="text-2xl font-bold text-amber-900">{projectStats.highPriority}</h3>
+                  </div>
+                  <div className="p-2 rounded-full bg-amber-500/20">
+                    <Shield className="h-5 w-5 text-amber-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-emerald-100">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-emerald-700">Completed</p>
+                    <h3 className="text-2xl font-bold text-emerald-900">{projectStats.completed}</h3>
+                  </div>
+                  <div className="p-2 rounded-full bg-emerald-500/20">
+                    <Check className="h-5 w-5 text-emerald-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* Development Mode Warning */}
       {usingMockData && (
-        <Alert className="bg-amber-50 border-amber-200">
+        <Alert className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
           <AlertCircle className="h-4 w-4 text-amber-600" />
           <AlertDescription className="text-amber-800">
             <strong>Development Mode:</strong> Using mock data. The API endpoint
             is not available or returned an error.
-            <Button
-              variant="link"
-              className="h-auto p-0 ml-2 text-amber-800"
-              onClick={clearCache}
-            >
-              Clear Cache
-            </Button>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Filters - Only show in list view */}
-      {viewMode === "list" && (
-        <>
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="flex-1 min-w-[200px] relative">
-              <label className="text-sm font-medium mb-1.5 block">Search</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search projects, teams, or keywords..."
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  onFocus={handleSearchFocus}
-                  onBlur={handleSearchBlur}
-                  onKeyDown={handleKeyDown}
-                  className="pl-9"
-                  aria-label="Search projects with autocomplete"
-                  aria-expanded={showSuggestions}
-                  aria-controls="search-suggestions"
-                  role="combobox"
-                />
-                {searchQuery && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-
-              {/* Autocomplete Suggestions Dropdown */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div
-                  id="search-suggestions"
-                  className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg max-h-60 overflow-y-auto"
-                  role="listbox"
-                >
-                  <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border">
-                    Suggestions ({suggestions.length})
-                  </div>
-                  {suggestions.map((suggestion, index) => (
-                    <button
-                      key={`${suggestion}-${index}`}
-                      className={`w-full text-left px-3 py-2 hover:bg-muted transition-colors flex items-center justify-between ${
-                        index === selectedSuggestionIndex ? "bg-muted" : ""
-                      }`}
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      onMouseDown={(e) => e.preventDefault()} // Prevent input blur
-                      role="option"
-                      aria-selected={index === selectedSuggestionIndex}
-                    >
-                      <span className="truncate">
-                        <Search className="h-3 w-3 inline mr-2 opacity-50" />
-                        {suggestion}
-                      </span>
-                      {index === selectedSuggestionIndex && (
-                        <Check className="h-3 w-3 text-primary" />
-                      )}
-                    </button>
-                  ))}
-                  <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                    <kbd className="px-1 py-0.5 bg-muted rounded text-xs">
-                      ↑↓
-                    </kbd>{" "}
-                    to navigate •{" "}
-                    <kbd className="px-1 py-0.5 bg-muted rounded text-xs">
-                      Enter
-                    </kbd>{" "}
-                    to select •{" "}
-                    <kbd className="px-1 py-0.5 bg-muted rounded text-xs">
-                      Esc
-                    </kbd>{" "}
-                    to close
-                  </div>
-                </div>
-              )}
-
-              {/* Show "no suggestions" message */}
-              {showSuggestions &&
-                suggestions.length === 0 &&
-                debouncedSearchQuery.trim() && (
-                  <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg p-4 text-center text-muted-foreground">
-                    No suggestions found for "{debouncedSearchQuery}"
-                  </div>
-                )}
-            </div>
-
-            <div className="w-[180px]">
-              <label className="text-sm font-medium mb-1.5 block">Status</label>
-              <Select
-                value={filters.status || "all"}
-                onValueChange={(v) =>
-                  updateFilter("status", v === "all" ? undefined : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="In Progress">In Progress</SelectItem>
-                  <SelectItem value="Planning">Planning</SelectItem>
-                  <SelectItem value="Review">Review</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-[180px]">
-              <label className="text-sm font-medium mb-1.5 block">
-                Priority
-              </label>
-              <Select
-                value={filters.priority || "all"}
-                onValueChange={(v) =>
-                  updateFilter("priority", v === "all" ? undefined : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priorities</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-[180px]">
-              <label className="text-sm font-medium mb-1.5 block">
-                Sort By
-              </label>
-              <Select
-                value={filters.sortBy || "none"}
-                onValueChange={(v) =>
-                  updateFilter("sortBy", v === "none" ? undefined : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="name">Name</SelectItem>
-                  <SelectItem value="deadline">Deadline</SelectItem>
-                  <SelectItem value="priority">Priority</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {filters.sortBy && filters.sortBy !== "none" && (
-              <div className="w-[140px]">
-                <label className="text-sm font-medium mb-1.5 block">
-                  Order
-                </label>
-                <Select
-                  value={filters.sortOrder || "asc"}
-                  onValueChange={(v) =>
-                    updateFilter("sortOrder", v as "asc" | "desc")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="asc">Ascending</SelectItem>
-                    <SelectItem value="desc">Descending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {hasActiveFilters && (
-              <Button variant="ghost" onClick={clearFilters} className="gap-2">
-                <X className="h-4 w-4" />
-                Clear
-              </Button>
-            )}
-          </div>
-
-          {/* Cache Stats Info - Only in development */}
-          {process.env.NODE_ENV === "development" && (
-            <div className="text-xs text-muted-foreground flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                Cache: {getCacheStats().hitRate}
-              </Badge>
-              <span>
-                Hits: {getCacheStats().hits} • Misses: {getCacheStats().misses}
-              </span>
-              {getCacheStats().errors > 0 && (
-                <span className="text-red-600">
-                  • Errors: {getCacheStats().errors}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Projects Count - Only in list view */}
-          <div className="text-sm text-muted-foreground">
-            Showing {sortedProjects.length} of {allProjects?.length || 0}{" "}
-            projects
-            {searchQuery && ` matching "${searchQuery}"`}
-            {suggestions.length > 0 && isSearchFocused && (
-              <span className="ml-2 text-primary">
-                • {suggestions.length} suggestion
-                {suggestions.length !== 1 ? "s" : ""} available
-              </span>
-            )}
-          </div>
-        </>
-      )}
-
       {/* Main Content Area */}
       {viewMode === "list" ? (
-        /* Projects Grid View */
-        sortedProjects.length === 0 ? (
-          <Alert>
-            <AlertDescription>
-              No projects found.{" "}
-              {hasActiveFilters && "Try adjusting your filters."}
-            </AlertDescription>
-          </Alert>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {sortedProjects.map((project) => {
-              const dependencyCount = getProjectDependencyCount(project.id);
-              const estimatedDays = getProjectEstimatedDays(project.id);
+        <>
+          {/* Enhanced Filters Section */}
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-slate-100">
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                {/* Status Tabs */}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                  <TabsList className="grid grid-cols-5 w-full max-w-md">
+                    <TabsTrigger value="all" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500">
+                      All
+                    </TabsTrigger>
+                    <TabsTrigger value="In Progress" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-500">
+                      In Progress
+                    </TabsTrigger>
+                    <TabsTrigger value="Planning" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500">
+                      Planning
+                    </TabsTrigger>
+                    <TabsTrigger value="Review" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-500">
+                      Review
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
 
-              return (
-                <Card
-                  key={project.id}
-                  className="shadow-sm hover:shadow-md transition-all group"
-                >
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <CardTitle className="text-lg">{project.name}</CardTitle>
-                      <div className="flex items-center gap-1">
-                        {dependencyCount > 0 && (
-                          <Badge
-                            variant="outline"
-                            className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
-                            title={`${dependencyCount} dependencies`}
-                          >
-                            <GitBranch className="h-3 w-3" />
-                            {dependencyCount}
-                          </Badge>
-                        )}
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
+                <div className="flex flex-wrap gap-4 items-end">
+                  {/* Enhanced Search */}
+                  <div className="flex-1 min-w-[300px]">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search projects, teams, or keywords..."
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        onFocus={handleSearchFocus}
+                        onBlur={handleSearchBlur}
+                        onKeyDown={handleKeyDown}
+                        className="pl-9 bg-white border-2 focus-visible:ring-2 focus-visible:ring-blue-500"
+                      />
+                      {searchQuery && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 hover:bg-transparent"
+                          onClick={() => setSearchQuery("")}
+                        >
+                          <X className="h-3 w-3" />
                         </Button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-                      {project.description}
-                    </p>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex flex-wrap gap-2">
-                      <Badge
-                        variant="outline"
-                        className={statusColors[project.status]}
-                      >
-                        {project.status}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={priorityColors[project.priority]}
-                      >
-                        {project.priority}
-                      </Badge>
+                      )}
                     </div>
 
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Progress</span>
-                        <span className="font-medium text-foreground">
-                          {project.tasks.completed}/{project.tasks.total} tasks
-                        </span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all"
-                          style={{
-                            width: `${
-                              (project.tasks.completed / project.tasks.total) *
-                              100
-                            }%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Calendar className="h-4 w-4" />
-                        <span>{project.deadline}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Users className="h-4 w-4" />
-                          <span>{project.team}</span>
+                    {/* Enhanced Autocomplete Suggestions */}
+                    {showSuggestions && suggestions.length > 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-lg shadow-xl max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-1">
+                        <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-border">
+                          <div className="text-sm font-semibold text-blue-700">
+                            Suggestions ({suggestions.length})
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          <span title="Estimated duration">
-                            {estimatedDays}d
-                          </span>
+                        {suggestions.map((suggestion, index) => (
+                          <button
+                            key={`${suggestion}-${index}`}
+                            className={`w-full text-left px-4 py-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all flex items-center justify-between ${
+                              index === selectedSuggestionIndex ? "bg-gradient-to-r from-blue-50 to-purple-50" : ""
+                            }`}
+                            onClick={() => handleSuggestionClick(suggestion)}
+                            onMouseDown={(e) => e.preventDefault()}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-1.5 rounded-full bg-gradient-to-r from-blue-100 to-purple-100">
+                                <Search className="h-3 w-3 text-blue-600" />
+                              </div>
+                              <span className="font-medium">{suggestion}</span>
+                            </div>
+                            {index === selectedSuggestionIndex && (
+                              <Check className="h-4 w-4 text-blue-600" />
+                            )}
+                          </button>
+                        ))}
+                        <div className="px-4 py-3 bg-slate-50 border-t border-border">
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <kbd className="px-2 py-1 bg-white border rounded text-xs font-semibold">↑↓</kbd>
+                            <span>Navigate</span>
+                            <kbd className="px-2 py-1 bg-white border rounded text-xs font-semibold">Enter</kbd>
+                            <span>Select</span>
+                            <kbd className="px-2 py-1 bg-white border rounded text-xs font-semibold">Esc</kbd>
+                            <span>Close</span>
+                          </div>
                         </div>
                       </div>
+                    )}
+                  </div>
+
+                  {/* Enhanced Filter Controls */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-[160px]">
+                      <Select
+                        value={filters.status || "all"}
+                        onValueChange={(v) =>
+                          updateFilter("status", v === "all" ? undefined : v)
+                        }
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          <SelectItem value="In Progress">In Progress</SelectItem>
+                          <SelectItem value="Planning">Planning</SelectItem>
+                          <SelectItem value="Review">Review</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
-                    {/* Quick actions for dependencies */}
-                    <div className="pt-2 border-t border-border">
+                    <div className="w-[160px]">
+                      <Select
+                        value={filters.priority || "all"}
+                        onValueChange={(v) =>
+                          updateFilter("priority", v === "all" ? undefined : v)
+                        }
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Priorities</SelectItem>
+                          <SelectItem value="High">High</SelectItem>
+                          <SelectItem value="Medium">Medium</SelectItem>
+                          <SelectItem value="Low">Low</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="w-[160px]">
+                      <Select
+                        value={filters.sortBy || "deadline"}
+                        onValueChange={(v) =>
+                          updateFilter("sortBy", v === "deadline" ? undefined : v)
+                        }
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Sort by" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="deadline">Deadline</SelectItem>
+                          <SelectItem value="priority">Priority</SelectItem>
+                          <SelectItem value="name">Name</SelectItem>
+                          <SelectItem value="none">None</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {filters.sortBy && filters.sortBy !== "none" && (
+                      <div className="w-[140px]">
+                        <Select
+                          value={filters.sortOrder || "asc"}
+                          onValueChange={(v) =>
+                            updateFilter("sortOrder", v as "asc" | "desc")
+                          }
+                        >
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Order" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="asc">
+                              <div className="flex items-center gap-2">
+                                <SortAsc className="h-3 w-3" />
+                                Ascending
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="desc">
+                              <div className="flex items-center gap-2">
+                                <SortDesc className="h-3 w-3" />
+                                Descending
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {hasActiveFilters && (
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="w-full text-xs gap-2"
-                        onClick={() => setViewMode("graph")}
+                        onClick={clearFilters}
+                        className="gap-2 border-2"
                       >
-                        <Network className="h-3 w-3" />
-                        View in Dependency Graph
+                        <X className="h-4 w-4" />
+                        Clear Filters
                       </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )
-      ) : (
-        /* Dependency Graph View */
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-            <div>
-              <h3 className="font-semibold">Dependency Graph View</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Visualize project dependencies and identify critical paths.
-                Click "List View" to return to the project list.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="flex items-center gap-1">
-                <GitBranch className="h-3 w-3" />
-                {allProjects?.length || 0} projects
-              </Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setViewMode("list")}
-                className="gap-2"
-              >
-                <List className="h-4 w-4" />
-                Back to List
-              </Button>
-            </div>
-          </div>
+                    )}
+                  </div>
+                </div>
 
-          {dependencyProjects.length > 0 ? (
-            <DependencyGraph
-              projects={dependencyProjects}
-              onDependencyAdd={handleAddDependency}
-              onDependencyRemove={handleRemoveDependency}
-            />
+                {/* Results Count & Cache Stats */}
+                <div className="flex items-center justify-between pt-4 border-t border-border/50">
+                  <div className="text-sm font-medium">
+                    <span className="text-muted-foreground">Showing</span>
+                    <span className="mx-2 font-bold text-blue-600">{sortedProjects.length}</span>
+                    <span className="text-muted-foreground">of</span>
+                    <span className="mx-2 font-bold">{allProjects?.length || 0}</span>
+                    <span className="text-muted-foreground">projects</span>
+                    {searchQuery && (
+                      <span className="ml-4 text-blue-600 font-medium">
+                        for "{searchQuery}"
+                      </span>
+                    )}
+                  </div>
+
+                  {process.env.NODE_ENV === "development" && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Badge variant="outline" className="bg-white/50 text-xs">
+                            🚀 Cache: {getCacheStats().hitRate}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Hits: {getCacheStats().hits}</p>
+                          <p>Misses: {getCacheStats().misses}</p>
+                          {getCacheStats().errors > 0 && (
+                            <p className="text-red-600">Errors: {getCacheStats().errors}</p>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Enhanced Projects Grid */}
+          {sortedProjects.length === 0 ? (
+            <Card className="border-0 shadow-sm">
+              <CardContent className="py-16 text-center">
+                <div className="max-w-md mx-auto space-y-4">
+                  <div className="p-4 rounded-full bg-gradient-to-r from-blue-100 to-purple-100 w-fit mx-auto">
+                    <Search className="h-8 w-8 text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-semibold">No projects found</h3>
+                  <p className="text-muted-foreground">
+                    {hasActiveFilters 
+                      ? "Try adjusting your filters or search query"
+                      : "No projects available. Create your first project to get started."}
+                  </p>
+                  {hasActiveFilters && (
+                    <Button
+                      variant="outline"
+                      onClick={clearFilters}
+                      className="mt-4"
+                    >
+                      Clear all filters
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           ) : (
-            <Alert>
-              <AlertDescription>
-                No projects available for dependency graph.
-              </AlertDescription>
-            </Alert>
-          )}
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {sortedProjects.map((project) => {
+                const dependencyCount = getProjectDependencyCount(project.id);
+                const estimatedDays = getProjectEstimatedDays(project.id);
+                const progressPercentage = (project.tasks.completed / project.tasks.total) * 100;
 
-          {/* Dependency Graph Tips */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
-              <GitBranch className="h-4 w-4" />
-              How to Use the Dependency Graph
-            </h4>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>
-                • <strong>Add dependencies:</strong> Select projects from
-                dropdowns and click "Add Dependency"
-              </li>
-              <li>
-                • <strong>Critical path:</strong> Highlighted in red - these
-                projects cannot be delayed
-              </li>
-              <li>
-                • <strong>Slack time:</strong> Shows how much a project can be
-                delayed without affecting deadlines
-              </li>
-              <li>
-                • <strong>Click on projects</strong> to see details and
-                dependencies
-              </li>
-              <li>
-                • <strong>Remove dependencies</strong> using the × button next
-                to each dependency
-              </li>
-              <li>
-                • <strong>Duration estimates</strong> are calculated based on
-                task count and priority
-              </li>
-            </ul>
-          </div>
+                return (
+                  <Card
+                    key={project.id}
+                    className="group hover:shadow-xl transition-all duration-300 border-2 hover:border-blue-300 overflow-hidden"
+                  >
+                    {/* Card Header with Gradient */}
+                    <CardHeader className="pb-4 bg-gradient-to-r from-slate-50 to-blue-50">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="text-lg font-bold text-foreground truncate">
+                            {project.name}
+                          </CardTitle>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <p className="text-sm text-muted-foreground mt-2 line-clamp-2 cursor-help">
+                                  {project.description}
+                                </p>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="max-w-xs">{project.description}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {dependencyCount > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="bg-gradient-to-r from-purple-50 to-blue-50 text-purple-700 border-purple-200 font-medium"
+                            >
+                              <GitBranch className="h-3 w-3 mr-1" />
+                              {dependencyCount}
+                            </Badge>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-6">
+                      {/* Status & Priority Badges */}
+                      <div className="flex flex-wrap gap-2">
+                        <Badge
+                          variant="outline"
+                          className={`${statusColors[project.status]} font-semibold`}
+                        >
+                          {project.status}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={`${priorityColors[project.priority]} font-semibold`}
+                        >
+                          {project.priority}
+                        </Badge>
+                      </div>
+
+                      {/* Enhanced Progress Section */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1 rounded-full bg-blue-100">
+                              <BarChart3 className="h-3 w-3 text-blue-600" />
+                            </div>
+                            <span className="text-sm font-medium">Progress</span>
+                          </div>
+                          <span className="text-sm font-bold text-foreground">
+                            {project.tasks.completed}/{project.tasks.total} tasks
+                            <span className="ml-2 text-blue-600">
+                              ({Math.round(progressPercentage)}%)
+                            </span>
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <Progress 
+                            value={progressPercentage} 
+                            className="h-2"
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>0%</span>
+                            <span>100%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Project Metadata */}
+                      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Calendar className="h-4 w-4" />
+                            <span>Deadline</span>
+                          </div>
+                          <div className="font-semibold text-foreground">{project.deadline}</div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            <span>Duration</span>
+                          </div>
+                          <div className="font-semibold text-foreground">{estimatedDays}d</div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Users className="h-4 w-4" />
+                            <span>Team</span>
+                          </div>
+                          <div className="font-semibold text-foreground">{project.team}</div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 pt-4 border-t border-border">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50"
+                          onClick={() => setViewMode("graph")}
+                        >
+                          <Network className="h-3 w-3" />
+                          View Graph
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50"
+                        >
+                          <Eye className="h-3 w-3" />
+                          Details
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        /* Enhanced Dependency Graph View */
+        <div className="space-y-6">
+          {/* Graph Header */}
+          <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-50 to-purple-50">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    Dependency Graph
+                  </h3>
+                  <p className="text-muted-foreground mt-1">
+                    Visualize project dependencies and identify critical paths
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline" className="bg-white font-medium">
+                    <GitBranch className="h-3 w-3 mr-1" />
+                    {allProjects?.length || 0} projects
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    onClick={() => setViewMode("list")}
+                    className="gap-2 border-2"
+                  >
+                    <List className="h-4 w-4" />
+                    Back to List
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Graph Container */}
+          <Card className="border-0 shadow-sm min-h-[600px]">
+            <CardContent className="p-0 h-full">
+              {dependencyProjects.length > 0 ? (
+                <DependencyGraph
+                  projects={dependencyProjects}
+                  onDependencyAdd={handleAddDependency}
+                  onDependencyRemove={handleRemoveDependency}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-[600px]">
+                  <Alert>
+                    <AlertDescription>
+                      No projects available for dependency graph.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Enhanced Tips Panel */}
+          <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-50 to-cyan-50">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-full bg-gradient-to-r from-blue-100 to-cyan-100">
+                  <GitBranch className="h-6 w-6 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-bold text-lg text-blue-800 mb-3">
+                    How to Use the Dependency Graph
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1 rounded-full bg-blue-100">
+                          <Target className="h-3 w-3 text-blue-600" />
+                        </div>
+                        <span className="font-semibold text-blue-700">Add Dependencies</span>
+                      </div>
+                      <p className="text-sm text-blue-600">
+                        Select projects from dropdowns and click "Add Dependency"
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1 rounded-full bg-rose-100">
+                          <AlertCircle className="h-3 w-3 text-rose-600" />
+                        </div>
+                        <span className="font-semibold text-rose-700">Critical Path</span>
+                      </div>
+                      <p className="text-sm text-rose-600">
+                        Highlighted in red - these projects cannot be delayed
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1 rounded-full bg-green-100">
+                          <Clock className="h-3 w-3 text-green-600" />
+                        </div>
+                        <span className="font-semibold text-green-700">Slack Time</span>
+                      </div>
+                      <p className="text-sm text-green-600">
+                        Shows how much a project can be delayed without affecting deadlines
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
