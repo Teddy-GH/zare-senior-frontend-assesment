@@ -1,7 +1,7 @@
 # Algorithm Analysis & Documentation
 
-**Candidate Name:** [Your Name]
-**Date:** [Date]
+**Candidate Name:** Tewodros Girma
+**Date:** 12/27/2025
 **Time Spent:** see individual sections below
 
 ---
