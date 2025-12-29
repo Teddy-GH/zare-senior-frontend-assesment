@@ -1,4 +1,4 @@
-import { Trie, LRUCache, AutocompleteService } from '../dataStructures';
+import { Trie, LRUCache, AutocompleteService } from '../lib/dataStructures';
 
 describe('Trie', () => {
   test('insert, search, startsWith, remove', () => {
@@ -77,7 +77,7 @@ describe('CachedAPIClient (partial)', () => {
       json: async () => mockJson,
     });
 
-    const { CachedAPIClient } = require('../dataStructures');
+    const { CachedAPIClient } = require('../lib/dataStructures');
     const client = new CachedAPIClient(2);
 
     const url = '/api/test';
@@ -106,7 +106,7 @@ describe('CachedAPIClient (partial)', () => {
     // @ts-ignore
     global.fetch = jest.fn().mockRejectedValue(new Error('network'));
 
-    const { CachedAPIClient } = require('../dataStructures');
+    const { CachedAPIClient } = require('../lib/dataStructures');
     const client = new CachedAPIClient(2);
 
     const data = await client.fetchWithCache('/api/projects');
@@ -116,7 +116,7 @@ describe('CachedAPIClient (partial)', () => {
   });
 
   test('getEntries and getStats reflect LRU order', () => {
-    const { LRUCache } = require('../dataStructures');
+    const { LRUCache } = require('../lib/dataStructures');
     const c = new LRUCache(3);
     c.put('x', 1);
     c.put('y', 2);

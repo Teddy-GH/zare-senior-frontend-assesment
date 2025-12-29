@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import useTeam from "@/hooks/useTeam";
+import useCachedAPI from "@/hooks/useCachedAPI";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -8,186 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Mail,
-  MoreVertical,
   Search,
   X,
   Check,
-  AlertCircle,
   Users,
   RefreshCw,
 } from "lucide-react";
-import { teamApi, type TeamFilters, type TeamMember } from "@/lib/api";
-import { AutocompleteService, CachedAPIClient } from "@/lib/dataStructures";
-import {
-  calculateTeamStats,
-  filterMockTeamData,
-  generateTeamAutocompleteItems,
-} from "@/lib/teamHelpers";
-
-// Mock team data for development
-const MOCK_TEAM_DATA: TeamMember[] = [
-  {
-    id: 1,
-    name: "Alex Johnson",
-    role: "Frontend Developer",
-    email: "alex.johnson@example.com",
-    projects: 4,
-    status: "Active",
-    avatar: "bg-blue-500",
-    initials: "AJ",
-  },
-  {
-    id: 2,
-    name: "Sarah Miller",
-    role: "Backend Engineer",
-    email: "sarah.miller@example.com",
-    projects: 6,
-    status: "Active",
-    avatar: "bg-purple-500",
-    initials: "SM",
-  },
-  {
-    id: 3,
-    name: "Michael Chen",
-    role: "DevOps Specialist",
-    email: "michael.chen@example.com",
-    projects: 3,
-    status: "Inactive",
-    avatar: "bg-green-500",
-    initials: "MC",
-  },
-  {
-    id: 4,
-    name: "Emma Wilson",
-    role: "Product Manager",
-    email: "emma.wilson@example.com",
-    projects: 5,
-    status: "Active",
-    avatar: "bg-pink-500",
-    initials: "EW",
-  },
-  {
-    id: 5,
-    name: "David Brown",
-    role: "UI/UX Designer",
-    email: "david.brown@example.com",
-    projects: 4,
-    status: "Active",
-    avatar: "bg-yellow-500",
-    initials: "DB",
-  },
-  {
-    id: 6,
-    name: "Lisa Garcia",
-    role: "QA Engineer",
-    email: "lisa.garcia@example.com",
-    projects: 7,
-    status: "Active",
-    avatar: "bg-red-500",
-    initials: "LG",
-  },
-  {
-    id: 7,
-    name: "Robert Lee",
-    role: "Full Stack Developer",
-    email: "robert.lee@example.com",
-    projects: 5,
-    status: "Inactive",
-    avatar: "bg-indigo-500",
-    initials: "RL",
-  },
-  {
-    id: 8,
-    name: "Jennifer Taylor",
-    role: "Data Analyst",
-    email: "jennifer.taylor@example.com",
-    projects: 3,
-    status: "Active",
-    avatar: "bg-teal-500",
-    initials: "JT",
-  },
-];
-
-// Simple debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  const timeoutRef = useRef<NodeJS.Timeout>();
-
-  useEffect(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    timeoutRef.current = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
-
-// Custom hook for autocomplete to prevent Trie rebuilds
-function useTeamAutocomplete(teamMembers?: TeamMember[]) {
-  const autocompleteServiceRef = useRef<AutocompleteService | null>(null);
-  const lastTeamMembersRef = useRef<TeamMember[]>([]);
-
-  // Get or create autocomplete service
-  const getService = useCallback(() => {
-    if (!autocompleteServiceRef.current) {
-      autocompleteServiceRef.current = new AutocompleteService();
-    }
-    return autocompleteServiceRef.current;
-  }, []);
-
-  // Build autocomplete data only when team members change
-  useEffect(() => {
-    if (teamMembers && teamMembers.length > 0) {
-      // Only rebuild if team members actually changed
-      const currentTeamIds = teamMembers.map((m) => m.id).join(",");
-      const lastTeamIds = lastTeamMembersRef.current.map((m) => m.id).join(",");
-
-      if (currentTeamIds !== lastTeamIds) {
-        lastTeamMembersRef.current = teamMembers;
-
-        const items = generateTeamAutocompleteItems(teamMembers);
-        const service = getService();
-        service.build(items);
-      }
-    }
-  }, [teamMembers, getService]);
-
-  const getSuggestions = useCallback(
-    (prefix: string, limit: number = 5) => {
-      const service = getService();
-      return service.getSuggestions(prefix, limit);
-    },
-    [getService]
-  );
-
-  const addItem = useCallback(
-    (item: string) => {
-      const service = getService();
-      service.addItem(item);
-    },
-    [getService]
-  );
-
-  return {
-    getSuggestions,
-    addItem,
-    hasItem: (item: string) => {
-      const service = getService();
-      return service.hasItem(item);
-    },
-  };
-}
+import type { TeamFilters } from "@/lib/api";
+import useDebounce from "@/hooks/useDebounce";
+import useAutocomplete from "@/hooks/useAutocomplete";
+import { calculateTeamStats, generateTeamAutocompleteItems } from "@/lib/teamHelpers";
 
 export default function Team() {
   const [filters, setFilters] = useState<TeamFilters>({});
@@ -198,51 +29,32 @@ export default function Team() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Initialize cached API client
-  const cachedClientRef = useRef<CachedAPIClient>(new CachedAPIClient(50));
-  const cache = cachedClientRef.current.getCache();
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300); // Increased for better performance
 
-  // Fetch team members - simplified query
+  // Fetch team members using shared api hooks
   const {
     data: teamMembers,
     isLoading,
     isError,
     error,
     refetch,
-  } = useQuery({
-    queryKey: ["team", filters],
-    queryFn: async () => {
-      try {
-        // Try to fetch from API with cache
-        const cacheKey = `team::${JSON.stringify(filters)}`;
-        const cached = cache.get(cacheKey);
+    isFetching,
+  } = useTeam(filters);
 
-        if (cached) {
-          return cached;
-        }
+  // Cache helpers (optional)
+  const { getCacheStats, clearCache } = useCachedAPI();
 
-        const data = await teamApi.getAll(filters);
-        cache.put(cacheKey, data);
-        return data;
-      } catch (error) {
-        // Use mock data and apply filters
-        return filterMockTeamData(MOCK_TEAM_DATA, filters);
-      }
-    },
-  });
-
-  // Initialize autocomplete - use ref to prevent recreation
-  const autocomplete = useTeamAutocomplete(teamMembers);
+  // Initialize autocomplete items and hook
+  const autocompleteItems = useMemo(() => generateTeamAutocompleteItems(teamMembers), [teamMembers]);
+  const autocomplete = useAutocomplete(autocompleteItems, 4);
 
   // Update suggestions when search query changes - optimized
   useEffect(() => {
     if (debouncedSearchQuery.trim() && isSearchFocused) {
       const newSuggestions = autocomplete.getSuggestions(
-        debouncedSearchQuery.toLowerCase(),
-        4
-      ); // Reduced to 4
+        debouncedSearchQuery.toLowerCase()
+      ); 
       setSuggestions(newSuggestions);
       setShowSuggestions(true);
     } else {
@@ -320,9 +132,7 @@ export default function Team() {
     setShowSuggestions(false);
   };
 
-  const clearCache = () => {
-    cachedClientRef.current.clearCache();
-  };
+  // clearCache provided by useCachedAPI above
 
   const handleAddTeamMember = () => {
     const newMemberName = `New Member ${
@@ -375,7 +185,7 @@ export default function Team() {
     );
   }
 
-  const cacheStats = cachedClientRef.current.getCacheStats();
+  const cacheStats = getCacheStats();
 
   return (
     <div className="space-y-6">
@@ -475,6 +285,9 @@ export default function Team() {
             onKeyDown={handleKeyDown}
             className="pl-9"
           />
+          {isFetching && (
+            <RefreshCw className="absolute right-10 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
+          )}
           {searchQuery && (
             <Button
               variant="ghost"

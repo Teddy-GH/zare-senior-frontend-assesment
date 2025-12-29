@@ -2,7 +2,7 @@ import {
   calculateTeamStats,
   filterMockTeamData,
   generateTeamAutocompleteItems,
-} from "../teamHelpers";
+} from "../lib/teamHelpers";
 import type { TeamMember, TeamFilters } from "@/lib/api";
 
 const MOCK_TEAM: TeamMember[] = [

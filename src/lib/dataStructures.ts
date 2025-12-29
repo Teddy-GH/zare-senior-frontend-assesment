@@ -399,29 +399,34 @@ export class CachedAPIClient {
         },
       });
 
-      // Check if response is JSON
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error(`Expected JSON but got ${contentType}`);
-      }
-
+      // If response not OK, throw to be handled downstream
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      this.cache.put(cacheKey, data);
-      return data;
+      // Try to parse JSON. Some servers may return HTML (e.g., error pages)
+      // Attempt to parse and fall back to mock data in development if parsing fails
+      try {
+        const data = await response.json();
+        this.cache.put(cacheKey, data);
+        return data;
+      } catch (parseError) {
+        this.errorCount++;
+        console.error("API response JSON parse failed:", parseError);
+
+        if (process.env.NODE_ENV === "development") {
+          console.warn("Non-JSON response received; returning mock data for development");
+          return this._getMockData(url);
+        }
+
+        throw new Error("Expected JSON response but could not parse it");
+      }
     } catch (error) {
       this.errorCount++;
       console.error("API fetch failed:", error);
 
-      // Return mock data for development if API fails
-      if (process.env.NODE_ENV === "development") {
-        console.warn("Returning mock data for development");
-        return this._getMockData(url);
-      }
-
+      // Always propagate errors to callers. Do not return mock data here;
+      // let the UI or calling code decide how to handle failures.
       throw error;
     }
   }
@@ -560,7 +565,35 @@ export class CachedAPIClient {
    * Generate a unique cache key from URL and options
    */
   private _generateCacheKey(url: string, options?: RequestInit): string {
-    const optionsString = options ? JSON.stringify(options) : "";
+    // Create a shallow safe copy so we don't serialize non-serializable values
+    const safeOptions: any = options ? { ...options } : undefined;
+
+    // Remove AbortSignal since it's non-serializable and varies per request
+    if (safeOptions && safeOptions.signal) {
+      delete safeOptions.signal;
+    }
+
+    // Normalize Headers (if present) to a plain object for stable serialization
+    if (safeOptions && safeOptions.headers) {
+      try {
+        // If headers is a Headers instance, iterate and copy entries
+        const hdrs: any = {};
+        if (typeof (safeOptions.headers as any).forEach === 'function') {
+          (safeOptions.headers as any).forEach((value: any, key: string) => {
+            hdrs[key] = value;
+          });
+          safeOptions.headers = hdrs;
+        } else if (safeOptions.headers instanceof Object) {
+          // If it's a plain object, keep as-is
+          // nothing to do
+        }
+      } catch (e) {
+        // If normalization fails for any reason, remove headers to avoid serialization errors
+        delete safeOptions.headers;
+      }
+    }
+
+    const optionsString = safeOptions ? JSON.stringify(safeOptions) : "";
     return `${url}::${optionsString}`;
   }
 }

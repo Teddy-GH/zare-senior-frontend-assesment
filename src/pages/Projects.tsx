@@ -1,5 +1,4 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -35,28 +32,28 @@ import {
   Clock,
   Check,
   AlertCircle,
-  Filter,
   SortAsc,
   SortDesc,
   BarChart3,
-  ChevronRight,
-  ExternalLink,
   Eye,
   Shield,
   Target,
-  Zap,
   TrendingUp,
+  RefreshCw,
 } from "lucide-react";
-import { projectsApi, type ProjectFilters, type Project } from "@/lib/api";
-import { searchProjects, applyFuzzySearchWithFilters } from "@/lib/search";
+import { type ProjectFilters, type Project } from "@/lib/api";
+import useProjects from "@/hooks/useProjects";
+import { applyFuzzySearchWithFilters } from "@/lib/search";
 import DependencyGraph from "@/components/DependencyGraph";
-import { AutocompleteService, CachedAPIClient } from "@/lib/dataStructures";
+import useDebounce from "@/hooks/useDebounce";
+import useAutocomplete from "@/hooks/useAutocomplete";
 import {
   convertToDependencyFormat,
   getProjectEstimatedDays as getProjectEstimatedDaysHelper,
   getProjectDependencyCount as getProjectDependencyCountHelper,
 } from "@/lib/projectsHelpers";
 import useCachedAPI from "@/hooks/useCachedAPI";
+import { Progress } from "@radix-ui/react-progress";
 
 // Enhanced color schemes with gradients and better contrast
 const statusColors = {
@@ -79,22 +76,7 @@ const getProgressColor = (percentage: number) => {
   return "bg-gradient-to-r from-rose-500 to-pink-600";
 };
 
-// Debounce function for better performance
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
+// useDebounce provided by src/hooks/useDebounce
 
 // Define the interface for dependency projects
 interface DependencyProject {
@@ -104,59 +86,7 @@ interface DependencyProject {
   estimatedDays: number;
 }
 
-// Custom hook for autocomplete with Trie
-function useAutocomplete(items: string[], maxSuggestions: number = 5) {
-  const [autocompleteService] = useState(() => new AutocompleteService());
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  useEffect(() => {
-    if (items.length > 0) {
-      autocompleteService.build(items);
-    }
-  }, [items, autocompleteService]);
-
-  const getSuggestions = useCallback(
-    (prefix: string) => {
-      if (prefix.trim() === "") {
-        setSuggestions([]);
-        return [];
-      }
-
-      const suggestions = autocompleteService.getSuggestions(
-        prefix,
-        maxSuggestions
-      );
-      setSuggestions(suggestions);
-      return suggestions;
-    },
-    [autocompleteService, maxSuggestions]
-  );
-
-  const addItem = useCallback(
-    (item: string) => {
-      autocompleteService.addItem(item);
-    },
-    [autocompleteService]
-  );
-
-  const removeItem = useCallback(
-    (item: string) => {
-      autocompleteService.removeItem(item);
-    },
-    [autocompleteService]
-  );
-
-  return {
-    suggestions,
-    showSuggestions,
-    setShowSuggestions,
-    getSuggestions,
-    addItem,
-    removeItem,
-    hasItem: autocompleteService.hasItem.bind(autocompleteService),
-  };
-}
+// useAutocomplete provided by src/hooks/useAutocomplete
 
 export default function Projects() {
   const [filters, setFilters] = useState<ProjectFilters>({});
@@ -172,133 +102,20 @@ export default function Projects() {
 
   const debouncedSearchQuery = useDebounce(searchQuery, 150);
 
-  // Initialize cached API client
-  const { fetchWithCache, getCacheStats, clearCache } = useCachedAPI();
-
-  // Fetch projects with caching
+  // Fetch projects via shared hook
   const {
     data: allProjects,
     isLoading,
     isError,
     error,
     refetch,
-  } = useQuery({
-    queryKey: ["projects"],
-    queryFn: async () => {
-      try {
-        const data = await fetchWithCache("/api/projects");
-        setUsingMockData(false);
-        return data;
-      } catch (apiError) {
-        console.log("API failed, trying direct API call...");
+    isFetching,
+  } = useProjects(filters);
+  ;
 
-        try {
-          const response = await fetch("/api/projects", {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            setUsingMockData(false);
-            return data;
-          } else {
-            throw new Error(`HTTP ${response.status}`);
-          }
-        } catch (fallbackError) {
-          console.log("Direct API also failed, using mock data");
-          setUsingMockData(true);
-
-          return [
-            {
-              id: 1,
-              name: "Website Redesign",
-              description:
-                "Complete overhaul of company website with new design system",
-              status: "In Progress",
-              priority: "High",
-              deadline: "2024-12-15",
-              team: "Web Team",
-              tasks: {
-                total: 15,
-                completed: 8,
-              },
-            },
-            {
-              id: 2,
-              name: "Mobile App Development",
-              description:
-                "New cross-platform mobile application for iOS and Android",
-              status: "Planning",
-              priority: "High",
-              deadline: "2025-03-20",
-              team: "Mobile Team",
-              tasks: {
-                total: 20,
-                completed: 0,
-              },
-            },
-            {
-              id: 3,
-              name: "Database Migration",
-              description:
-                "Migrate from legacy database to new cloud-based solution",
-              status: "Review",
-              priority: "Medium",
-              deadline: "2024-11-30",
-              team: "DevOps",
-              tasks: {
-                total: 10,
-                completed: 9,
-              },
-            },
-            {
-              id: 4,
-              name: "User Authentication System",
-              description: "Implement OAuth2 and multi-factor authentication",
-              status: "In Progress",
-              priority: "Medium",
-              deadline: "2025-01-15",
-              team: "Security Team",
-              tasks: {
-                total: 12,
-                completed: 6,
-              },
-            },
-            {
-              id: 5,
-              name: "Documentation Update",
-              description: "Update all technical and user documentation",
-              status: "Planning",
-              priority: "Low",
-              deadline: "2025-02-28",
-              team: "Documentation",
-              tasks: {
-                total: 8,
-                completed: 1,
-              },
-            },
-            {
-              id: 6,
-              name: "Performance Optimization",
-              description:
-                "Optimize application performance and reduce loading times",
-              status: "In Progress",
-              priority: "Medium",
-              deadline: "2024-12-10",
-              team: "Performance Team",
-              tasks: {
-                total: 7,
-                completed: 4,
-              },
-            },
-          ];
-        }
-      }
-    },
-    staleTime: 30000,
-  });
+  // Cache helpers
+  const { getCacheStats, clearCache } = useCachedAPI();
+  const cacheStats = getCacheStats();
 
   // Initialize autocomplete service
   const autocompleteItems = useMemo(() => {
@@ -307,7 +124,7 @@ export default function Projects() {
     const items = new Set<string>();
     allProjects.forEach((project) => {
       items.add(project.name.toLowerCase());
-      items.add(project.team.toLowerCase());
+      items.add(project.team.toString().toLowerCase());
       project.description
         .toLowerCase()
         .split(/\s+/)
@@ -743,6 +560,9 @@ export default function Projects() {
                         onKeyDown={handleKeyDown}
                         className="pl-9 bg-white border-2 focus-visible:ring-2 focus-visible:ring-blue-500"
                       />
+                      {isFetching && (
+                        <RefreshCw className="absolute right-10 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
+                      )}
                       {searchQuery && (
                         <Button
                           variant="ghost"
@@ -918,14 +738,14 @@ export default function Projects() {
                       <Tooltip>
                         <TooltipTrigger>
                           <Badge variant="outline" className="bg-white/50 text-xs">
-                            🚀 Cache: {getCacheStats().hitRate}
+                            🚀 Cache: {cacheStats.hitRate}
                           </Badge>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Hits: {getCacheStats().hits}</p>
-                          <p>Misses: {getCacheStats().misses}</p>
-                          {getCacheStats().errors > 0 && (
-                            <p className="text-red-600">Errors: {getCacheStats().errors}</p>
+                          <p>Hits: {cacheStats.hits}</p>
+                          <p>Misses: {cacheStats.misses}</p>
+                          {cacheStats.errors > 0 && (
+                            <p className="text-red-600">Errors: {cacheStats.errors}</p>
                           )}
                         </TooltipContent>
                       </Tooltip>

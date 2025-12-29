@@ -1,5 +1,5 @@
-import { estimateProjectDays, convertToDependencyFormat, getProjectEstimatedDays, getProjectDependencyCount } from '../projectsHelpers';
-import type { Project } from '../api';
+import { estimateProjectDays, convertToDependencyFormat, getProjectEstimatedDays, getProjectDependencyCount } from '../lib/projectsHelpers';
+import type { Project } from '../lib/api';
 
 // Mock localStorage for tests
 const localStorageMock: Record<string, string> = {};

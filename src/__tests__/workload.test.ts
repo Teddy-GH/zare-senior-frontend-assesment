@@ -3,8 +3,8 @@ import {
   calculateStandardDeviation,
   clusterProjectsByWeek,
   generateReassignmentSuggestions,
-} from '../workload';
-import type { Project, TeamMember } from '../api';
+} from '../lib/workload';
+import type { Project, TeamMember } from '../lib/api';
 
 describe('workload utilities', () => {
   const team: TeamMember[] = [

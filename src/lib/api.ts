@@ -45,14 +45,14 @@ export interface TeamFilters {
 
 // Projects API
 export const projectsApi = {
-  getAll: async (filters?: ProjectFilters): Promise<Project[]> => {
+  getAll: async (filters?: ProjectFilters, signal?: AbortSignal): Promise<Project[]> => {
     const params = new URLSearchParams();
     if (filters) {
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params.append(key, value);
       });
     }
-    const response = await fetch(`${API_BASE_URL}/projects?${params}`);
+    const response = await fetch(`${API_BASE_URL}/projects?${params}`, { signal });
     if (!response.ok) throw new Error('Failed to fetch projects');
     return response.json();
   },
@@ -93,14 +93,14 @@ export const projectsApi = {
 
 // Team API
 export const teamApi = {
-  getAll: async (filters?: TeamFilters): Promise<TeamMember[]> => {
+  getAll: async (filters?: TeamFilters, signal?: AbortSignal): Promise<TeamMember[]> => {
     const params = new URLSearchParams();
     if (filters) {
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params.append(key, value);
       });
     }
-    const response = await fetch(`${API_BASE_URL}/team?${params}`);
+    const response = await fetch(`${API_BASE_URL}/team?${params}`, { signal });
     if (!response.ok) throw new Error('Failed to fetch team members');
     return response.json();
   },

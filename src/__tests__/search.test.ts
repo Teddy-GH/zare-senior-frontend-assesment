@@ -1,4 +1,4 @@
-import { fuzzySearch, normalizeString, applyFuzzySearchWithFilters, searchProjects, searchTeamMembers } from '../search';
+import { fuzzySearch, normalizeString, applyFuzzySearchWithFilters, searchProjects, searchTeamMembers } from '../lib/search';
 
 type Item = { name?: string; description?: string; email?: string; role?: string };
 

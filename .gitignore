@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+node_modules/
+coverage/
+.DS_Store
+.env
+*.log
+.vscode/
+dist/
