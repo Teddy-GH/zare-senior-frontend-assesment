@@ -45,32 +45,36 @@ export default function Team() {
   // Cache helpers (optional)
   const { getCacheStats, clearCache } = useCachedAPI();
 
-  // Initialize autocomplete items and hook
+  // Initialize autocomplete items and hook. Destructure stable callbacks
   const autocompleteItems = useMemo(() => generateTeamAutocompleteItems(teamMembers), [teamMembers]);
-  const autocomplete = useAutocomplete(autocompleteItems, 4);
+  const { getSuggestions, addItem } = useAutocomplete(autocompleteItems, 4);
 
   // Update suggestions when search query changes - optimized
+  // Note: don't include `filters` here so changing other filters
+  // doesn't re-trigger suggestions unnecessarily.
   useEffect(() => {
     if (debouncedSearchQuery.trim() && isSearchFocused) {
-      const newSuggestions = autocomplete.getSuggestions(
-        debouncedSearchQuery.toLowerCase()
-      ); 
+      const newSuggestions = getSuggestions(debouncedSearchQuery.toLowerCase());
       setSuggestions(newSuggestions);
       setShowSuggestions(true);
     } else {
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [debouncedSearchQuery, isSearchFocused, autocomplete]);
+  }, [debouncedSearchQuery, isSearchFocused, getSuggestions]);
 
   // Update filter when search changes - with debounce
+  // Use functional update to avoid reading `filters` from outer scope
+  // and prevent unnecessary state updates that re-trigger effects.
   useEffect(() => {
-    if (debouncedSearchQuery !== filters.search) {
-      setFilters((prev) => ({
+    setFilters((prev) => {
+      const newSearch = debouncedSearchQuery || undefined;
+      if (prev.search === newSearch) return prev;
+      return {
         ...prev,
-        search: debouncedSearchQuery || undefined,
-      }));
-    }
+        search: newSearch,
+      };
+    });
   }, [debouncedSearchQuery]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,8 +144,8 @@ export default function Team() {
     }`;
     const newRole = "Team Member";
 
-    autocomplete.addItem(newMemberName.toLowerCase());
-    autocomplete.addItem(newRole.toLowerCase());
+    addItem(newMemberName.toLowerCase());
+    addItem(newRole.toLowerCase());
 
     alert(`New team member "${newMemberName}" would be created`);
   };
