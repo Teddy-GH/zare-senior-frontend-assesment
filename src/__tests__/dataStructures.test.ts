@@ -97,7 +97,7 @@ describe('CachedAPIClient (partial)', () => {
     expect(stats2.cacheStats.size).toBe(0);
   });
 
-  test('fetchWithCache returns mock data in development on fetch error', async () => {
+  test('fetchWithCache propagates fetch errors', async () => {
     // force development env
     const prevEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
@@ -109,8 +109,8 @@ describe('CachedAPIClient (partial)', () => {
     const { CachedAPIClient } = require('../lib/dataStructures');
     const client = new CachedAPIClient(2);
 
-    const data = await client.fetchWithCache('/api/projects');
-    expect(Array.isArray(data)).toBe(true);
+    await expect(client.fetchWithCache('/api/projects')).rejects.toThrow('network');
+
     // restore env
     process.env.NODE_ENV = prevEnv;
   });
