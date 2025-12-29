@@ -296,6 +296,9 @@ export default function Projects() {
     []
   );
 
+  // Per-project selected dependency for Add UI
+  const [selectedDependencyFor, setSelectedDependencyFor] = useState<Record<number, number | null>>({});
+
   // Filter and search handlers
   const updateFilter = useCallback(
     (key: keyof ProjectFilters, value: string | undefined) => {
@@ -999,6 +1002,69 @@ export default function Projects() {
                           <Eye className="h-3 w-3" />
                           Details
                         </Button>
+                      </div>
+
+                      {/* Inline dependency management for this project */}
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium text-muted-foreground">Blocked By</div>
+                          <div className="flex items-center gap-2">
+                            <Select
+                              value={
+                                (selectedDependencyFor[project.id] || "") as any
+                              }
+                              onValueChange={(v) =>
+                                setSelectedDependencyFor((prev) => ({
+                                  ...prev,
+                                  [project.id]: v ? parseInt(v) : null,
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select project" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allProjects
+                                  ?.filter((p) => p.id !== project.id)
+                                  .map((p) => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                      {p.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                const depId = selectedDependencyFor[project.id];
+                                if (depId) {
+                                  handleAddDependency(project.id, depId);
+                                }
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {(dependencyProjects.find((p) => p.id === project.id)?.dependencies || []).map((depId) => {
+                            const dep = allProjects?.find((ap) => ap.id === depId);
+                            return (
+                              <Badge key={depId} variant="outline" className="flex items-center gap-2">
+                                <span className="text-sm">{dep ? dep.name : `#${depId}`}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5"
+                                  onClick={() => handleRemoveDependency(project.id, depId)}
+                                >
+                                  ×
+                                </Button>
+                              </Badge>
+                            );
+                          })}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
