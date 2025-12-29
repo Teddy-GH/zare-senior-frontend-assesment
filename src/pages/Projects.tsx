@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { normalizeString } from "@/lib/search";
 import {
   Select,
   SelectContent,
@@ -43,7 +44,8 @@ import {
 } from "lucide-react";
 import { type ProjectFilters, type Project } from "@/lib/api";
 import useProjects from "@/hooks/useProjects";
-import { applyFuzzySearchWithFilters } from "@/lib/search";
+import { fuzzySearch } from "@/lib/search";
+import { Switch } from "@/components/ui/switch";
 import DependencyGraph from "@/components/DependencyGraph";
 import useDebounce from "@/hooks/useDebounce";
 import useAutocomplete from "@/hooks/useAutocomplete";
@@ -101,6 +103,8 @@ export default function Projects() {
   const [activeTab, setActiveTab] = useState<string>("all");
 
   const debouncedSearchQuery = useDebounce(searchQuery, 150);
+
+  const [smartSearchEnabled, setSmartSearchEnabled] = useState<boolean>(false);
 
   // Fetch projects via shared hook
   const {
@@ -162,20 +166,50 @@ export default function Projects() {
     }
   }, [debouncedSearchQuery, isSearchFocused, getAutocompleteSuggestions]);
 
-  // Apply filters and search
-  const filteredProjects = useMemo(() => {
-    if (!allProjects) return [];
+  // Apply filters and search (supports both basic and smart fuzzy search)
+  const { projects: filteredProjects, scoreMap } = useMemo(() => {
+    type ScoreInfo = { score: number; matchedField?: string; matchedValue?: string };
+    if (!allProjects) return { projects: [], scoreMap: new Map<number, ScoreInfo>() };
 
-    return applyFuzzySearchWithFilters(
-      allProjects,
-      debouncedSearchQuery,
-      {
-        status: filters.status,
-        priority: filters.priority,
-      },
-      ["name", "description", "status", "priority"]
-    );
-  }, [allProjects, debouncedSearchQuery, filters.status, filters.priority]);
+    // First apply exact filters (status, priority)
+    const normalizedStatus = filters.status ? filters.status : undefined;
+    const normalizedPriority = filters.priority ? filters.priority : undefined;
+
+    let filtered = allProjects.filter((p) => {
+      if (normalizedStatus && normalizeString(p.status) !== normalizeString(normalizedStatus)) return false;
+      if (normalizedPriority && normalizeString(p.priority) !== normalizeString(normalizedPriority)) return false;
+      return true;
+    });
+
+    const fields = ["name", "description", "status", "priority"];
+    const scoreMap = new Map<number, ScoreInfo>();
+
+    const q = debouncedSearchQuery.trim();
+    if (!q) {
+      return { projects: filtered, scoreMap };
+    }
+
+    // Smart fuzzy search path
+    if (smartSearchEnabled) {
+      const results = fuzzySearch(filtered, q, fields);
+      results.forEach((r) =>
+        scoreMap.set((r.item as Project).id, {
+          score: r.score,
+          matchedField: r.matchedField,
+          matchedValue: r.matchedValue,
+        })
+      );
+      return { projects: results.map((r) => r.item as Project), scoreMap };
+    }
+
+    // Basic string matching path (case-insensitive contains)
+    const nq = q.toLowerCase();
+    const basic = filtered.filter((p) => {
+      return fields.some((f) => String(p[f] ?? "").toLowerCase().includes(nq));
+    });
+
+    return { projects: basic, scoreMap };
+  }, [allProjects, debouncedSearchQuery, filters.status, filters.priority, smartSearchEnabled]);
 
   // Apply tab filtering
   const tabFilteredProjects = useMemo(() => {
@@ -619,6 +653,14 @@ export default function Projects() {
 
                   {/* Enhanced Filter Controls */}
                   <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-2">
+                      <div className="text-sm font-medium text-muted-foreground">Smart Search</div>
+                      <Switch
+                        checked={smartSearchEnabled}
+                        onCheckedChange={(v) => setSmartSearchEnabled(Boolean(v))}
+                        aria-label="Toggle Smart Search"
+                      />
+                    </div>
                     <div className="w-[160px]">
                       <Select
                         value={filters.status || "all"}
@@ -823,6 +865,37 @@ export default function Projects() {
                               <GitBranch className="h-3 w-3 mr-1" />
                               {dependencyCount}
                             </Badge>
+                          )}
+                          {scoreMap && scoreMap.get && scoreMap.get(project.id) != null && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="bg-white/60 text-xs font-semibold">
+                                    {scoreMap.get(project.id)?.score}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="max-w-xs">
+                                    <div className="font-semibold">Score: {scoreMap.get(project.id)?.score}</div>
+                                    <div className="text-sm text-muted-foreground">
+                                      {(() => {
+                                        const info = scoreMap.get(project.id);
+                                        if (!info) return null;
+                                        const s = info.score;
+                                        if (s === 100) return "Exact match";
+                                        if (s === 75) return `Starts with in ${info.matchedField || "field"}`;
+                                        if (s === 50) return `Contains in ${info.matchedField || "field"}`;
+                                        if (s === 25) return `Fuzzy match (typo) in ${info.matchedField || "field"}`;
+                                        return "Match";
+                                      })()}
+                                    </div>
+                                    {scoreMap.get(project.id)?.matchedValue && (
+                                      <div className="mt-1 text-xs text-muted-foreground">Matched: {scoreMap.get(project.id)?.matchedValue}</div>
+                                    )}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           )}
                           <Button
                             variant="ghost"
