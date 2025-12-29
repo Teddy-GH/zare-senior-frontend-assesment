@@ -46,7 +46,7 @@ import { type ProjectFilters, type Project } from "@/lib/api";
 import useProjects from "@/hooks/useProjects";
 import { fuzzySearch } from "@/lib/search";
 import { Switch } from "@/components/ui/switch";
-import DependencyGraph from "@/components/DependencyGraph";
+import DependencyGraph, { detectCycle as detectCycleInGraph } from "@/components/DependencyGraph";
 import useDebounce from "@/hooks/useDebounce";
 import useAutocomplete from "@/hooks/useAutocomplete";
 import {
@@ -247,6 +247,13 @@ export default function Projects() {
 
   // Dependency handlers
   const handleAddDependency = useCallback((fromId: number, toId: number) => {
+    // Prevent circular dependency
+    if (detectCycleInGraph(dependencyProjects, fromId, toId)) {
+      // Warn user and do not add
+      alert("Cannot add dependency: would create a circular dependency!");
+      return;
+    }
+
     setDependencyProjects((prev) => {
       const newProjects = [...prev];
       const fromProjectIndex = newProjects.findIndex((p) => p.id === fromId);
